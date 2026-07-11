@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import math
+import os
 import sys
 from collections.abc import Sequence
 from io import BufferedReader
@@ -49,6 +50,26 @@ def _write_stdout(frame: bytes) -> None:
 def _safe_stderr(category: str, exception_type: type[BaseException]) -> None:
     sys.stderr.write(f"worker {category}: {exception_type.__name__}\n")
     sys.stderr.flush()
+
+
+def _redirect_stdout_to_devnull() -> None:
+    devnull_fd: int | None = None
+    try:
+        stdout_fd = sys.stdout.fileno()
+        devnull_fd = os.open(os.devnull, os.O_WRONLY)
+        if devnull_fd == stdout_fd:
+            devnull_fd = None
+        else:
+            os.dup2(devnull_fd, stdout_fd)
+        sys.stdout.flush()
+    except Exception:
+        pass
+    finally:
+        if devnull_fd is not None:
+            try:
+                os.close(devnull_fd)
+            except OSError:
+                pass
 
 
 class _WorkerProtocol:
@@ -191,6 +212,7 @@ async def _run(project_id: str, heartbeat_interval: float) -> int:
     except asyncio.CancelledError:
         raise
     except Exception as error:
+        _redirect_stdout_to_devnull()
         _safe_stderr("internal error", type(error))
         return 1
 

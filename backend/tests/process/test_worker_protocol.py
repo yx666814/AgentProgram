@@ -2,6 +2,7 @@ import asyncio
 import sys
 import threading
 from collections.abc import Sequence
+from typing import Any, cast
 
 import pytest
 
@@ -513,3 +514,40 @@ async def test_worker_cancellation_keeps_writer_lock_until_thread_finishes(
     assert isinstance(results[0], asyncio.CancelledError)
     assert results[1] is None
     assert second_writer_entered.is_set()
+
+
+async def test_worker_broken_stdout_exits_one_without_shutdown_diagnostic() -> None:
+    marker = b"SECRET_BROKEN_STDOUT"
+    process = await _start_worker("--heartbeat-interval", "60")
+    assert process.stdin is not None
+    assert process.stderr is not None
+    process_transport = cast(Any, process)._transport
+    process_transport.get_pipe_transport(1).close()
+    try:
+        await asyncio.sleep(0.1)
+        ping = IpcMessage(
+            message_id="broken_stdout_ping",
+            sequence=1,
+            project_id="project_1",
+            type="command",
+            payload={"name": "ping", "secret": marker.decode()},
+        )
+        process.stdin.write(encode_frame(ping))
+        try:
+            await process.stdin.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        returncode = await asyncio.wait_for(process.wait(), timeout=5)
+        stderr = await process.stderr.read()
+    finally:
+        await _terminate_process(process)
+
+    assert returncode == 1
+    assert stderr.splitlines() in [
+        [b"worker internal error: BrokenPipeError"],
+        [b"worker internal error: OSError"],
+    ]
+    assert b"Exception ignored" not in stderr
+    assert b"Traceback" not in stderr
+    assert b"Content-Length" not in stderr
+    assert marker not in stderr
