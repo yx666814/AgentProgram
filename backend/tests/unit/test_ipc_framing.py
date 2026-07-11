@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 
 import pytest
@@ -11,6 +12,11 @@ from agent_platform.interfaces.ipc.framing import (
     encode_frame,
 )
 from agent_platform.interfaces.ipc.messages import IpcMessage
+
+
+class _PayloadMarker:
+    def __repr__(self) -> str:
+        return "PAYLOAD_VALUE_MARKER"
 
 
 def test_decoder_handles_partial_unicode_frame() -> None:
@@ -63,6 +69,77 @@ def test_message_rejects_unsupported_type() -> None:
 def test_message_rejects_negative_sequence() -> None:
     with pytest.raises(ValidationError):
         IpcMessage(message_id="m1", sequence=-1, project_id="p", type="event")
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("protocol_version", True),
+        ("sequence", True),
+        ("sequence", "1"),
+        ("sequence", 1.0),
+    ],
+)
+def test_message_rejects_non_strict_wire_scalars_from_python(
+    field: str,
+    value: object,
+) -> None:
+    data = {
+        "protocol_version": 1,
+        "message_id": "m1",
+        "sequence": 1,
+        "project_id": "p",
+        "type": "event",
+    }
+    data[field] = value
+
+    with pytest.raises(ValidationError):
+        IpcMessage.model_validate(data)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("protocol_version", True),
+        ("sequence", True),
+        ("sequence", "1"),
+        ("sequence", 1.0),
+    ],
+)
+def test_message_rejects_non_strict_wire_scalars_from_json(
+    field: str,
+    value: object,
+) -> None:
+    data = {
+        "protocol_version": 1,
+        "message_id": "m1",
+        "sequence": 1,
+        "project_id": "p",
+        "type": "event",
+    }
+    data[field] = value
+
+    with pytest.raises(ValidationError):
+        IpcMessage.model_validate_json(json.dumps(data))
+
+
+def test_message_accepts_strict_integer_scalars_and_aware_json_timestamp() -> None:
+    message = IpcMessage.model_validate_json(
+        json.dumps(
+            {
+                "protocol_version": 1,
+                "message_id": "m1",
+                "sequence": 1,
+                "project_id": "p",
+                "type": "event",
+                "timestamp": "2026-07-11T00:00:00Z",
+            }
+        )
+    )
+
+    assert message.protocol_version == 1
+    assert message.sequence == 1
+    assert message.timestamp.utcoffset() is not None
 
 
 @pytest.mark.parametrize("field", ["message_id", "project_id"])
@@ -122,6 +199,58 @@ def test_message_payload_defaults_are_independent() -> None:
     assert second.payload == {}
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param({"value": float("nan")}, id="nan"),
+        pytest.param({"value": float("inf")}, id="positive-infinity"),
+        pytest.param({"value": float("-inf")}, id="negative-infinity"),
+        pytest.param({"value": {1, 2}}, id="set"),
+        pytest.param({"value": (1, 2)}, id="tuple"),
+        pytest.param({"value": b"bytes"}, id="bytes"),
+        pytest.param({1: "value"}, id="non-string-root-key"),
+        pytest.param({"nested": {1: "value"}}, id="non-string-nested-key"),
+        pytest.param({"value": _PayloadMarker()}, id="custom-object"),
+        pytest.param({"nested": [{"value": (1, 2)}]}, id="nested-tuple"),
+    ],
+)
+def test_message_rejects_non_json_payload_values(payload: object) -> None:
+    with pytest.raises(ValidationError) as error:
+        IpcMessage.model_validate(
+            {
+                "message_id": "m1",
+                "sequence": 1,
+                "project_id": "p",
+                "type": "event",
+                "payload": payload,
+            }
+        )
+
+    assert "PAYLOAD_VALUE_MARKER" not in str(error.value)
+    assert "PAYLOAD_VALUE_MARKER" not in repr(error.value)
+
+
+def test_message_valid_json_payload_round_trips_without_transformation() -> None:
+    payload = {
+        "none": None,
+        "boolean": True,
+        "integer": 7,
+        "float": 2.5,
+        "string": "你好",
+        "list": [None, False, 3, 4.5, "value", {"nested": [1, 2]}],
+    }
+    message = IpcMessage(
+        message_id="m1",
+        sequence=1,
+        project_id="p",
+        type="event",
+        payload=payload,
+    )
+
+    assert FrameDecoder().feed(encode_frame(message)) == [message]
+    assert message.payload == payload
+
+
 def test_encode_rejects_oversized_body() -> None:
     message = IpcMessage(
         message_id="m1",
@@ -158,6 +287,28 @@ def test_decoder_rejects_non_ascii_header() -> None:
 
     with pytest.raises(FramingError):
         decoder.feed(frame)
+
+
+def test_decoder_non_ascii_header_error_chain_hides_raw_header() -> None:
+    marker = b"SECRET_HEADER_MARKER"
+    frame = b"Content-Length: 2\r\nProtocol-Version: 1 " + marker + b"\xff\r\n\r\n{}"
+
+    with pytest.raises(FramingError) as error:
+        FrameDecoder().feed(frame)
+
+    pending: list[BaseException] = [error.value]
+    seen: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        rendered = f"{current!s} {current!r} {current.args!r}".encode()
+        assert marker not in rendered
+        if current.__cause__ is not None:
+            pending.append(current.__cause__)
+        if current.__context__ is not None:
+            pending.append(current.__context__)
 
 
 def test_decoder_rejects_malformed_header_line() -> None:
@@ -388,3 +539,54 @@ def test_decoder_clears_buffer_after_error_and_accepts_fresh_frame() -> None:
         decoder.feed(invalid + encode_frame(valid_message))
 
     assert decoder.feed(encode_frame(valid_message)) == [valid_message]
+
+
+def test_decoder_parses_header_once_while_body_arrives_byte_by_byte() -> None:
+    class CountingFrameDecoder(FrameDecoder):
+        header_parse_count = 0
+
+        def _parse_header(self, header: bytes) -> int:
+            self.header_parse_count += 1
+            return super()._parse_header(header)
+
+    message = IpcMessage(
+        message_id="m1",
+        sequence=1,
+        project_id="p",
+        type="event",
+        payload={"text": "x" * 4096},
+    )
+    body = message.model_dump_json().encode("utf-8")
+    fixed_header = b"Content-Length:" + str(len(body)).encode() + b"\r\nProtocol-Version: 1"
+    header = (
+        b"Content-Length:"
+        + (b" " * (MAX_HEADER_BYTES - len(fixed_header)))
+        + str(len(body)).encode()
+        + b"\r\nProtocol-Version: 1\r\n\r\n"
+    )
+    decoder = CountingFrameDecoder()
+    result: list[IpcMessage] = []
+
+    for byte in header + body:
+        result.extend(decoder.feed(bytes([byte])))
+
+    assert result == [message]
+    assert decoder.header_parse_count == 1
+
+
+def test_decoder_compacts_once_for_many_coalesced_frames() -> None:
+    class CountingCompactionDecoder(FrameDecoder):
+        compaction_count = 0
+
+        def _compact_buffer(self, cursor: int) -> None:
+            self.compaction_count += 1
+            super()._compact_buffer(cursor)
+
+    messages = [
+        IpcMessage(message_id=f"m{sequence}", sequence=sequence, project_id="p", type="ack")
+        for sequence in range(100)
+    ]
+    decoder = CountingCompactionDecoder()
+
+    assert decoder.feed(b"".join(encode_frame(message) for message in messages)) == messages
+    assert decoder.compaction_count == 1
