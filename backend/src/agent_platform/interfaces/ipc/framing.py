@@ -7,7 +7,6 @@ from agent_platform.interfaces.ipc.messages import IpcMessage
 _HEADER_TERMINATOR = b"\r\n\r\n"
 MAX_HEADER_BYTES = 8 * 1024
 MAX_BODY_BYTES = 1024 * 1024
-_MAX_UNTERMINATED_HEADER_BYTES = MAX_HEADER_BYTES + len(_HEADER_TERMINATOR) - 1
 
 
 class FramingError(ValueError):
@@ -39,8 +38,12 @@ class FrameDecoder:
         while True:
             header_end = self._buffer.find(_HEADER_TERMINATOR)
             if header_end < 0:
-                if len(self._buffer) > _MAX_UNTERMINATED_HEADER_BYTES:
-                    self._fail("IPC frame header exceeds maximum size")
+                if len(self._buffer) > MAX_HEADER_BYTES:
+                    overflow = bytes(self._buffer[MAX_HEADER_BYTES:])
+                    if len(overflow) >= len(_HEADER_TERMINATOR) or not (
+                        _HEADER_TERMINATOR.startswith(overflow)
+                    ):
+                        self._fail("IPC frame header exceeds maximum size")
                 return messages
             if header_end > MAX_HEADER_BYTES:
                 self._fail("IPC frame header exceeds maximum size")

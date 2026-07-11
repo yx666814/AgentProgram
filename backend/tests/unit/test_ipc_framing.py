@@ -142,6 +142,16 @@ def test_decoder_rejects_oversized_unterminated_header() -> None:
         decoder.feed(b"x" * (MAX_HEADER_BYTES + 4))
 
 
+@pytest.mark.parametrize("suffix", [b"x", b"xy", b"xyz"])
+def test_decoder_rejects_oversized_unterminated_header_with_garbage_suffix(
+    suffix: bytes,
+) -> None:
+    decoder = FrameDecoder()
+
+    with pytest.raises(FramingError):
+        decoder.feed((b"x" * MAX_HEADER_BYTES) + suffix)
+
+
 def test_decoder_rejects_non_ascii_header() -> None:
     decoder = FrameDecoder()
     frame = b"Content-Length: 2\r\nProtocol-Version: 1\r\nX-\xff: value\r\n\r\n{}"
