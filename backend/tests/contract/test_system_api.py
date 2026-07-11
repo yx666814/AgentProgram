@@ -3,10 +3,12 @@ import os
 import sqlite3
 import subprocess
 import sys
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
+from fastapi.responses import StreamingResponse
 from httpx import ASGITransport, AsyncClient
 from pydantic import BaseModel, Field, field_validator
 
@@ -19,6 +21,9 @@ from agent_platform.interfaces.api.errors import PublicHttpError
 AUTHORIZATION = {"Authorization": "Bearer local-secret"}
 LEAKED_SECRET = "leaked-secret"
 RAW_VALIDATOR_MESSAGE = "validator exposed submitted value"
+DICTIONARY_KEY_SECRET = "dictionary-key-secret"
+DICTIONARY_VALUE_SECRET = "dictionary-value-secret"
+RAW_DICTIONARY_ERROR_MESSAGE = "Input should be a valid integer"
 
 
 def _settings(tmp_path: Path) -> Settings:
@@ -116,6 +121,40 @@ async def test_health_rejects_non_ascii_session_tokens_without_server_error(
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "auth.invalid_session"
     assert configured_token not in response.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "authorization_headers",
+    [
+        [
+            (b"Authorization", b"Bearer local-secret"),
+            (b"Authorization", b"Bearer wrong-secret"),
+        ],
+        [
+            (b"Authorization", b"Bearer wrong-secret"),
+            (b"Authorization", b"Bearer local-secret"),
+        ],
+    ],
+)
+async def test_health_rejects_duplicate_authorization_headers(
+    tmp_path: Path,
+    authorization_headers: list[tuple[bytes, bytes]],
+) -> None:
+    app = create_app(_settings(tmp_path))
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.get(
+            "/api/v1/health",
+            headers=authorization_headers,
+        )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "auth.invalid_session"
+    assert "local-secret" not in response.text
 
 
 @pytest.mark.asyncio
@@ -318,6 +357,10 @@ class _LeakyValidationPayload(BaseModel):
         raise ValueError(f"{RAW_VALIDATOR_MESSAGE}: {value}")
 
 
+class _DictionaryKeyValidationPayload(BaseModel):
+    values: dict[int, int]
+
+
 @pytest.mark.asyncio
 async def test_request_validation_errors_do_not_echo_input(tmp_path: Path) -> None:
     app = create_app(_settings(tmp_path))
@@ -373,8 +416,40 @@ async def test_request_validation_sanitizes_validator_messages_and_context(
     assert errors
     assert LEAKED_SECRET not in response.text
     assert RAW_VALIDATOR_MESSAGE not in response.text
-    assert all(set(error) == {"location", "type"} for error in errors)
-    assert all(isinstance(part, str | int) for error in errors for part in error["location"])
+    assert all(set(error) == {"type"} for error in errors)
+
+
+@pytest.mark.asyncio
+async def test_request_validation_does_not_echo_dictionary_keys(tmp_path: Path) -> None:
+    app = create_app(_settings(tmp_path))
+
+    async def validate_payload(payload: _DictionaryKeyValidationPayload) -> None:
+        del payload
+
+    app.add_api_route(
+        "/test/dictionary-key-validation",
+        validate_payload,
+        methods=["POST"],
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.post(
+            "/test/dictionary-key-validation",
+            json={"values": {DICTIONARY_KEY_SECRET: DICTIONARY_VALUE_SECRET}},
+        )
+
+    payload = response.json()
+    errors = payload["error"]["details"]["errors"]
+    assert response.status_code == 422
+    assert payload["error"]["code"] == "request.validation_failed"
+    assert errors
+    assert DICTIONARY_KEY_SECRET not in response.text
+    assert DICTIONARY_VALUE_SECRET not in response.text
+    assert RAW_DICTIONARY_ERROR_MESSAGE not in response.text
+    assert all(set(error) == {"type"} for error in errors)
 
 
 @pytest.mark.asyncio
@@ -457,7 +532,38 @@ async def test_generic_http_exception_does_not_echo_untrusted_detail(tmp_path: P
 
 
 @pytest.mark.asyncio
-async def test_unhandled_errors_are_generic_and_do_not_leak_secrets(
+async def test_streaming_error_after_response_start_closes_without_propagating(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    app = create_app(_settings(tmp_path))
+
+    async def broken_stream() -> AsyncIterator[bytes]:
+        yield b"partial-body"
+        raise RuntimeError("streaming-secret local-secret")
+
+    async def stream_response() -> StreamingResponse:
+        return StreamingResponse(broken_stream())
+
+    app.add_api_route("/test/streaming-error", stream_response, methods=["GET"])
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.get("/test/streaming-error")
+
+    captured_logs = capsys.readouterr()
+    assert response.status_code == 200
+    assert response.content == b"partial-body"
+    assert "streaming-secret" not in captured_logs.out
+    assert "streaming-secret" not in captured_logs.err
+    assert "local-secret" not in captured_logs.out
+    assert "local-secret" not in captured_logs.err
+
+
+@pytest.mark.asyncio
+async def test_pre_start_unhandled_errors_are_generic_and_do_not_leak_secrets(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:

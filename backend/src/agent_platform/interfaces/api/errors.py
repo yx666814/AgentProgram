@@ -129,9 +129,6 @@ async def _validation_error_handler(_: Request, exc: Exception) -> JSONResponse:
     sanitized_errors = [
         {
             "type": str(error.get("type", "validation_error")),
-            "location": [
-                part if isinstance(part, (str, int)) else str(part) for part in error.get("loc", ())
-            ],
         }
         for error in exc.errors()
     ]

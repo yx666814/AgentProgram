@@ -1,7 +1,7 @@
 from typing import Any
 
 import structlog
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from agent_platform.interfaces.api.errors import error_response
 
@@ -17,8 +17,19 @@ class UnexpectedErrorMiddleware:
             await self._app(scope, receive, send)
             return
 
+        response_started = False
+        response_completed = False
+
+        async def track_response(message: Message) -> None:
+            nonlocal response_completed, response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+            elif message["type"] == "http.response.body" and not message.get("more_body", False):
+                response_completed = True
+            await send(message)
+
         try:
-            await self._app(scope, receive, send)
+            await self._app(scope, receive, track_response)
         except Exception as exc:
             logger.error(
                 "unhandled_request_error",
@@ -26,12 +37,21 @@ class UnexpectedErrorMiddleware:
                 method=_scope_text(scope, "method"),
                 path=_scope_text(scope, "path"),
             )
-            response = error_response(
-                status_code=500,
-                code="internal.error",
-                message="Internal server error",
-            )
-            await response(scope, receive, send)
+            if not response_started:
+                response = error_response(
+                    status_code=500,
+                    code="internal.error",
+                    message="Internal server error",
+                )
+                await response(scope, receive, track_response)
+            elif not response_completed:
+                await send(
+                    {
+                        "type": "http.response.body",
+                        "body": b"",
+                        "more_body": False,
+                    }
+                )
 
 
 def _scope_text(scope: Scope, key: str) -> str | None:

@@ -26,6 +26,12 @@ async def require_session(
         Depends(_bearer),
     ],
 ) -> None:
+    authorization_header_count = sum(
+        1 for name, _ in request.scope.get("headers", ()) if name.lower() == b"authorization"
+    )
+    if authorization_header_count != 1:
+        _invalid_session()
+
     settings: Settings = request.app.state.settings
     if credentials is None or credentials.scheme.lower() != "bearer":
         _invalid_session()
