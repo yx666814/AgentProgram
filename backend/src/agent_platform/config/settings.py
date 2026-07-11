@@ -40,6 +40,10 @@ class Settings(BaseSettings):
         return self.data_root / "data" / "agent.db"
 
     @property
+    def database_url(self) -> str:
+        return f"sqlite+aiosqlite:///{self.database_path.as_posix()}"
+
+    @property
     def snapshot_root(self) -> Path:
         return self.data_root / "snapshots"
 
