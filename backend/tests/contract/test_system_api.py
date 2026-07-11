@@ -7,11 +7,13 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from fastapi.responses import StreamingResponse
 from httpx import ASGITransport, AsyncClient
 from pydantic import BaseModel, Field, field_validator
 from pydantic_core import PydanticCustomError
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.responses import Response
 
 import agent_platform.bootstrap.app_factory as app_factory_module
 from agent_platform.bootstrap.app_factory import create_app
@@ -26,6 +28,18 @@ DICTIONARY_KEY_SECRET = "dictionary-key-secret"
 DICTIONARY_VALUE_SECRET = "dictionary-value-secret"
 RAW_DICTIONARY_ERROR_MESSAGE = "Input should be a valid integer"
 TYPE_SECRET_VALUE = "type-secret-value"
+PATH_SECRET_MARKER = "PATH-SECRET-MARKER"
+OUTER_MIDDLEWARE_SECRET = "outer-middleware-secret"
+
+
+class _OuterFailureMiddleware(BaseHTTPMiddleware):
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: RequestResponseEndpoint,
+    ) -> Response:
+        del request, call_next
+        raise RuntimeError(OUTER_MIDDLEWARE_SECRET)
 
 
 def _settings(tmp_path: Path) -> Settings:
@@ -101,7 +115,6 @@ async def test_health_accepts_exact_local_bearer_token(tmp_path: Path) -> None:
     [
         ("local-secret", b"\xe9"),
         ("local-secret", "秘密".encode()),
-        ("秘密", b"local-secret"),
     ],
 )
 async def test_health_rejects_non_ascii_session_tokens_without_server_error(
@@ -636,3 +649,53 @@ async def test_pre_start_unhandled_errors_are_generic_and_do_not_leak_secrets(
     assert "internal-secret" not in captured_logs.err
     assert "local-secret" not in captured_logs.out
     assert "local-secret" not in captured_logs.err
+
+
+@pytest.mark.asyncio
+async def test_unexpected_error_logs_do_not_include_raw_request_path(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    app = create_app(_settings(tmp_path))
+
+    async def raise_path_error(marker: str) -> None:
+        del marker
+        raise RuntimeError("path failure")
+
+    app.add_api_route("/test/path-error/{marker}", raise_path_error, methods=["GET"])
+    requested_path = f"/test/path-error/{PATH_SECRET_MARKER}"
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.get(requested_path)
+
+    captured_logs = capsys.readouterr()
+    assert response.status_code == 500
+    assert PATH_SECRET_MARKER not in captured_logs.out
+    assert PATH_SECRET_MARKER not in captured_logs.err
+    assert requested_path not in captured_logs.out
+    assert requested_path not in captured_logs.err
+
+
+@pytest.mark.asyncio
+async def test_error_boundary_wraps_middleware_added_after_factory_creation(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    app = create_app(_settings(tmp_path))
+    app.add_middleware(_OuterFailureMiddleware)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.get("/api/v1/health", headers=AUTHORIZATION)
+
+    captured_logs = capsys.readouterr()
+    assert response.status_code == 500
+    assert response.json()["error"]["code"] == "internal.error"
+    assert OUTER_MIDDLEWARE_SECRET not in response.text
+    assert OUTER_MIDDLEWARE_SECRET not in captured_logs.out
+    assert OUTER_MIDDLEWARE_SECRET not in captured_logs.err

@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     def validate_session_token(cls, value: str) -> str:
         if not value.strip():
             raise ValueError("session_token must not be empty")
+        if not value.isascii():
+            raise ValueError("session_token must contain only ASCII characters")
         return value
 
     @property

@@ -1,11 +1,20 @@
-from typing import Any
-
 import structlog
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from agent_platform.interfaces.api.errors import error_response
 
 logger = structlog.get_logger(__name__)
+SAFE_HTTP_METHODS = {
+    "CONNECT",
+    "DELETE",
+    "GET",
+    "HEAD",
+    "OPTIONS",
+    "PATCH",
+    "POST",
+    "PUT",
+    "TRACE",
+}
 
 
 class UnexpectedErrorMiddleware:
@@ -34,8 +43,7 @@ class UnexpectedErrorMiddleware:
             logger.error(
                 "unhandled_request_error",
                 exception_type=type(exc).__name__,
-                method=_scope_text(scope, "method"),
-                path=_scope_text(scope, "path"),
+                method=_safe_http_method(scope),
             )
             if not response_started:
                 response = error_response(
@@ -54,6 +62,6 @@ class UnexpectedErrorMiddleware:
                 )
 
 
-def _scope_text(scope: Scope, key: str) -> str | None:
-    value: Any = scope.get(key)
-    return value if isinstance(value, str) else None
+def _safe_http_method(scope: Scope) -> str:
+    method = scope.get("method")
+    return method if isinstance(method, str) and method in SAFE_HTTP_METHODS else "UNKNOWN"
