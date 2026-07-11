@@ -13,6 +13,13 @@ from agent_platform.domain.shared.errors import DomainError
 logger = structlog.get_logger(__name__)
 
 
+def _http_status_message(status_code: int) -> str:
+    try:
+        return HTTPStatus(status_code).phrase
+    except ValueError:
+        return "HTTP error"
+
+
 def _error_response(
     *,
     status_code: int,
@@ -43,13 +50,16 @@ async def _http_exception_handler(_: Request, exc: Exception) -> JSONResponse:
     detail = exc.detail
     if isinstance(detail, Mapping):
         code = str(detail.get("code", "http.error"))
-        message = str(detail.get("message", HTTPStatus(exc.status_code).phrase))
+        raw_message = detail.get("message")
+        message = (
+            str(raw_message) if raw_message is not None else _http_status_message(exc.status_code)
+        )
         raw_details = detail.get("details")
         details = dict(raw_details) if isinstance(raw_details, Mapping) else {}
         retryable = detail.get("retryable") is True
     else:
         code = "http.error"
-        message = HTTPStatus(exc.status_code).phrase
+        message = _http_status_message(exc.status_code)
         details = {}
         retryable = False
 
@@ -81,8 +91,9 @@ async def _validation_error_handler(_: Request, exc: Exception) -> JSONResponse:
     sanitized_errors = [
         {
             "type": str(error.get("type", "validation_error")),
-            "location": [str(part) for part in error.get("loc", ())],
-            "message": str(error.get("msg", "Invalid value")),
+            "location": [
+                part if isinstance(part, (str, int)) else str(part) for part in error.get("loc", ())
+            ],
         }
         for error in exc.errors()
     ]
