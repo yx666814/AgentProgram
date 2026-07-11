@@ -11,5 +11,8 @@ class DomainError(Exception):
     details: dict[str, Any] = field(default_factory=dict)
     retryable: bool = False
 
+    def __post_init__(self) -> None:
+        Exception.__init__(self, self.code, self.message, self.details, self.retryable)
+
     def __str__(self) -> str:
         return self.message
