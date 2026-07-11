@@ -11,6 +11,7 @@
 - `02-product-requirements.md`：核心产品需求。
 - `03-workflow-design.md`：五阶段状态与交接流程。
 - `04-agent-roles.md`：五种 Agent 的职责和权限。
+- `roles/README.md` 与 `roles/*-role-card.md`：五个阶段的详细角色卡、默认能力、权限申请、P2R 规则和系统提示词。
 
 ## 3. 后续设计文档
 
