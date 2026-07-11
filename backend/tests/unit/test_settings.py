@@ -17,17 +17,28 @@ def test_settings_rejects_empty_session_token(tmp_path: Path) -> None:
     try:
         Settings(data_root=tmp_path, session_token="")
     except ValueError as exc:
-        assert "session_token" in str(exc)
+        rendered_error = str(exc)
+        debug_error = repr(exc)
+        assert "session_token" in rendered_error
+        assert "input_value" not in rendered_error
+        assert "input_value" not in debug_error
     else:
         raise AssertionError("empty session token must fail")
 
 
 def test_settings_rejects_non_ascii_session_token(tmp_path: Path) -> None:
+    invalid_token = "秘密-setting-token"
     try:
-        Settings(data_root=tmp_path, session_token="秘密")
+        Settings(data_root=tmp_path, session_token=invalid_token)
     except ValueError as exc:
-        assert "session_token" in str(exc)
-        assert "ASCII" in str(exc)
+        rendered_error = str(exc)
+        debug_error = repr(exc)
+        assert "session_token" in rendered_error
+        assert "ASCII" in rendered_error
+        assert invalid_token not in rendered_error
+        assert invalid_token not in debug_error
+        assert "input_value" not in rendered_error
+        assert "input_value" not in debug_error
     else:
         raise AssertionError("non-ASCII session token must fail")
 

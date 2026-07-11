@@ -19,6 +19,7 @@ class Settings(BaseSettings):
         env_prefix="AGENT_PLATFORM_",
         env_file=None,
         extra="forbid",
+        hide_input_in_errors=True,
     )
 
     host: str = "127.0.0.1"
