@@ -1,3 +1,4 @@
+import asyncio
 from types import TracebackType
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -12,6 +13,8 @@ class SqlAlchemyUnitOfWork:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
         self._entered = False
+        self._active = False
+        self._closed = False
         self._committed = False
         self.session: AsyncSession
         self.events: EventLogRepository
@@ -22,9 +25,10 @@ class SqlAlchemyUnitOfWork:
             raise RuntimeError("unit of work instances cannot be re-entered")
 
         self._entered = True
-        self.session = self._session_factory()
+        self.session = self._session_factory(close_resets_only=False)
         self.events = EventLogRepository(self.session)
         self.outbox = OutboxRepository(self.session)
+        self._active = True
         return self
 
     async def __aexit__(
@@ -33,17 +37,37 @@ class SqlAlchemyUnitOfWork:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
+        self._active = False
+        self._closed = True
+        cleanup_task = asyncio.create_task(self._cleanup())
         try:
-            if exc_type is not None or not self._committed:
-                await self.rollback()
-        finally:
-            await self.session.close()
+            await asyncio.shield(cleanup_task)
+        except asyncio.CancelledError as cancellation:
+            try:
+                await cleanup_task
+            except BaseException as cleanup_error:
+                raise cancellation from cleanup_error
+            raise
 
     async def commit(self) -> None:
+        self._require_active()
         self._committed = False
         await self.session.commit()
         self._committed = True
 
     async def rollback(self) -> None:
+        self._require_active()
         await self.session.rollback()
         self._committed = False
+
+    def _require_active(self) -> None:
+        if not self._active or self._closed:
+            raise RuntimeError("unit of work is not active")
+
+    async def _cleanup(self) -> None:
+        try:
+            if self.session.in_transaction():
+                await self.session.rollback()
+                self._committed = False
+        finally:
+            await self.session.close()
