@@ -1,8 +1,9 @@
 from typing import Never
 
 from pydantic import ValidationError
+from pydantic_core import PydanticSerializationError
 
-from agent_platform.interfaces.ipc.messages import IpcMessage
+from agent_platform.interfaces.ipc.messages import IpcMessage, validate_json_payload
 
 _HEADER_TERMINATOR = b"\r\n\r\n"
 MAX_HEADER_BYTES = 8 * 1024
@@ -14,7 +15,13 @@ class FramingError(ValueError):
 
 
 def encode_frame(message: IpcMessage) -> bytes:
-    body = message.model_dump_json().encode("utf-8")
+    try:
+        validate_json_payload(message.payload)
+        body = message.model_dump_json().encode("utf-8")
+    except (PydanticSerializationError, ValidationError, ValueError):
+        body = None
+    if body is None:
+        raise FramingError("IPC frame body is invalid") from None
     if len(body) > MAX_BODY_BYTES:
         raise FramingError("IPC frame body exceeds maximum size")
     header = f"Content-Length: {len(body)}\r\nProtocol-Version: 1\r\n\r\n".encode("ascii")
@@ -25,10 +32,12 @@ class FrameDecoder:
     def __init__(self) -> None:
         self._buffer = bytearray()
         self._expected_body_length: int | None = None
+        self._header_scan_offset = 0
 
     def _fail(self, message: str) -> Never:
         self._buffer.clear()
         self._expected_body_length = None
+        self._header_scan_offset = 0
         raise FramingError(message) from None
 
     def _parse_header(self, header_bytes: bytes) -> int:
@@ -85,6 +94,7 @@ class FrameDecoder:
     def _compact_buffer(self, cursor: int) -> None:
         if cursor:
             del self._buffer[:cursor]
+            self._header_scan_offset = max(0, self._header_scan_offset - cursor)
 
     def feed(self, chunk: bytes) -> list[IpcMessage]:
         self._buffer.extend(chunk)
@@ -93,18 +103,21 @@ class FrameDecoder:
 
         while True:
             if self._expected_body_length is None:
-                header_end = self._buffer.find(_HEADER_TERMINATOR, cursor)
+                search_start = max(cursor, self._header_scan_offset)
+                header_end = self._buffer.find(_HEADER_TERMINATOR, search_start)
                 if header_end < 0:
                     partial_delimiter_length = self._partial_delimiter_length()
                     candidate_header_length = len(self._buffer) - cursor - partial_delimiter_length
                     if candidate_header_length > MAX_HEADER_BYTES:
                         self._fail("IPC frame header exceeds maximum size")
+                    self._header_scan_offset = max(cursor, len(self._buffer) - 3)
                     break
                 header_length = header_end - cursor
                 if header_length > MAX_HEADER_BYTES:
                     self._fail("IPC frame header exceeds maximum size")
                 header = bytes(self._buffer[cursor:header_end])
                 self._expected_body_length = self._parse_header(header)
+                self._header_scan_offset = 0
                 cursor = header_end + len(_HEADER_TERMINATOR)
 
             frame_end = cursor + self._expected_body_length

@@ -1,5 +1,6 @@
 import json
 from datetime import datetime
+from typing import Any, cast
 
 import pytest
 from pydantic import ValidationError
@@ -251,6 +252,32 @@ def test_message_valid_json_payload_round_trips_without_transformation() -> None
     assert message.payload == payload
 
 
+@pytest.mark.parametrize("cycle_kind", ["dict", "list"])
+def test_message_rejects_cyclic_payload_without_recursion_error(cycle_kind: str) -> None:
+    marker = "CYCLE_PAYLOAD_MARKER"
+    if cycle_kind == "dict":
+        payload: dict[str, Any] = {"marker": marker}
+        payload["cycle"] = payload
+    else:
+        cyclic_list: list[Any] = [marker]
+        cyclic_list.append(cyclic_list)
+        payload = {"cycle": cyclic_list}
+
+    with pytest.raises(ValidationError) as error:
+        IpcMessage.model_validate(
+            {
+                "message_id": "m1",
+                "sequence": 1,
+                "project_id": "p",
+                "type": "event",
+                "payload": payload,
+            }
+        )
+
+    assert marker not in str(error.value)
+    assert marker not in repr(error.value)
+
+
 def test_encode_rejects_oversized_body() -> None:
     message = IpcMessage(
         message_id="m1",
@@ -262,6 +289,94 @@ def test_encode_rejects_oversized_body() -> None:
 
     with pytest.raises(FramingError):
         encode_frame(message)
+
+
+@pytest.mark.parametrize(
+    ("kind", "invalid_value"),
+    [
+        ("value", float("nan")),
+        ("value", float("inf")),
+        ("value", float("-inf")),
+        ("value", (1, 2)),
+        ("value", {1, 2}),
+        ("value", b"bytes"),
+        ("non-string-key", "value"),
+        ("value", _PayloadMarker()),
+        ("value", [{"nested": (1, 2)}]),
+    ],
+)
+def test_encode_rejects_payload_invalidated_by_mutation(
+    kind: str,
+    invalid_value: object,
+) -> None:
+    marker = b"ENCODE_PAYLOAD_MARKER"
+    message = IpcMessage(
+        message_id="m1",
+        sequence=1,
+        project_id="p",
+        type="event",
+        payload={"secret": marker.decode()},
+    )
+    if kind == "non-string-key":
+        cast_payload = cast(dict[object, object], message.payload)
+        cast_payload[1] = invalid_value
+    else:
+        message.payload["invalid"] = invalid_value
+
+    with pytest.raises(FramingError) as error:
+        encode_frame(message)
+
+    pending: list[BaseException] = [error.value]
+    seen: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        rendered = f"{current!s} {current!r} {current.args!r}".encode()
+        assert marker not in rendered
+        if current.__cause__ is not None:
+            pending.append(current.__cause__)
+        if current.__context__ is not None:
+            pending.append(current.__context__)
+
+
+@pytest.mark.parametrize("cycle_kind", ["dict", "list"])
+def test_encode_rejects_payload_cycle_added_by_mutation(cycle_kind: str) -> None:
+    marker = b"ENCODE_CYCLE_MARKER"
+    message = IpcMessage(
+        message_id="m1",
+        sequence=1,
+        project_id="p",
+        type="event",
+        payload={"secret": marker.decode()},
+    )
+    if cycle_kind == "dict":
+        message.payload["cycle"] = message.payload
+    else:
+        cyclic_list: list[Any] = []
+        cyclic_list.append(cyclic_list)
+        message.payload["cycle"] = cyclic_list
+
+    with pytest.raises(FramingError) as error:
+        encode_frame(message)
+
+    rendered = f"{error.value!s} {error.value!r} {error.value.args!r}".encode()
+    assert marker not in rendered
+    assert error.value.__cause__ is None
+    assert error.value.__suppress_context__ is True
+
+
+def test_encode_accepts_payload_mutated_to_valid_json_value() -> None:
+    message = IpcMessage(
+        message_id="m1",
+        sequence=1,
+        project_id="p",
+        type="event",
+    )
+    message.payload["added"] = [None, True, 7, 2.5, "value", {"nested": [1]}]
+
+    assert FrameDecoder().feed(encode_frame(message)) == [message]
 
 
 def test_decoder_rejects_oversized_unterminated_header() -> None:
@@ -572,6 +687,48 @@ def test_decoder_parses_header_once_while_body_arrives_byte_by_byte() -> None:
 
     assert result == [message]
     assert decoder.header_parse_count == 1
+
+
+def test_decoder_advances_search_offset_for_incomplete_header() -> None:
+    class TrackingBuffer(bytearray):
+        searches: list[tuple[int, int]]
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.searches = []
+
+        def find(  # type: ignore[override]
+            self,
+            sub: Any,
+            start: int = 0,
+            end: int | None = None,
+        ) -> int:
+            self.searches.append((start, len(self)))
+            if end is None:
+                return super().find(sub, start)
+            return super().find(sub, start, end)
+
+    message = IpcMessage(message_id="m1", sequence=1, project_id="p", type="event")
+    body = message.model_dump_json().encode("utf-8")
+    fixed_header = b"Content-Length:" + str(len(body)).encode() + b"\r\nProtocol-Version: 1"
+    header_length = 1024
+    header = (
+        b"Content-Length:"
+        + (b" " * (header_length - len(fixed_header)))
+        + str(len(body)).encode()
+        + b"\r\nProtocol-Version: 1\r\n\r\n"
+    )
+    tracking_buffer = TrackingBuffer()
+    decoder = FrameDecoder()
+    decoder._buffer = tracking_buffer
+    result: list[IpcMessage] = []
+
+    for byte in header + body:
+        result.extend(decoder.feed(bytes([byte])))
+
+    assert result == [message]
+    assert any(start > 0 for start, _ in tracking_buffer.searches)
+    assert all(length - start <= 4 for start, length in tracking_buffer.searches)
 
 
 def test_decoder_compacts_once_for_many_coalesced_frames() -> None:
