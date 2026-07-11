@@ -41,6 +41,8 @@ def test_new_id_accepts_alphanumeric_prefix() -> None:
         "événement",
         "事件",
         "K",
+        "\u00a0EVT\u00a0",
+        "\u2003evt\u2003",
         "2stage",
     ],
 )
