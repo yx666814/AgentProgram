@@ -23,7 +23,7 @@ def upgrade() -> None:
         sa.Column("aggregate_type", sa.String(length=80), nullable=False),
         sa.Column("aggregate_id", sa.String(length=80), nullable=False),
         sa.Column("payload", sa.JSON(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.PrimaryKeyConstraint("event_id"),
     )
     op.create_index("ix_event_log_aggregate_id", "event_log", ["aggregate_id"], unique=False)
@@ -44,9 +44,9 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("attempt_count", sa.Integer(), server_default="0", nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("last_attempt_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("delivered_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.Column("last_attempt_at", sa.DateTime(), nullable=True),
+        sa.Column("delivered_at", sa.DateTime(), nullable=True),
         sa.ForeignKeyConstraint(
             ["event_log_id"],
             ["event_log.event_id"],
@@ -61,16 +61,9 @@ def upgrade() -> None:
         ["delivery_state"],
         unique=False,
     )
-    op.create_index(
-        "ix_outbox_events_event_log_id",
-        "outbox_events",
-        ["event_log_id"],
-        unique=False,
-    )
 
 
 def downgrade() -> None:
-    op.drop_index("ix_outbox_events_event_log_id", table_name="outbox_events")
     op.drop_index("ix_outbox_events_delivery_state", table_name="outbox_events")
     op.drop_index("ix_event_log_workflow_id", table_name="event_log")
     op.drop_index("ix_event_log_task_id", table_name="event_log")

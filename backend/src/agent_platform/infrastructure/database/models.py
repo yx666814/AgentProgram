@@ -1,9 +1,10 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint
+from sqlalchemy import JSON, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from agent_platform.infrastructure.database.base import Base
+from agent_platform.infrastructure.database.types import UTCDateTime
 
 
 class EventLogRow(Base):
@@ -26,14 +27,13 @@ class EventLogRow(Base):
     aggregate_type: Mapped[str] = mapped_column(String(80), nullable=False)
     aggregate_id: Mapped[str] = mapped_column(String(80), nullable=False)
     payload: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
 
 class OutboxEventRow(Base):
     __tablename__ = "outbox_events"
     __table_args__ = (
         UniqueConstraint("event_log_id", name="uq_outbox_events_event_log_id"),
-        Index("ix_outbox_events_event_log_id", "event_log_id"),
         Index("ix_outbox_events_delivery_state", "delivery_state"),
     )
 
@@ -55,12 +55,12 @@ class OutboxEventRow(Base):
         default=0,
         server_default="0",
     )
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     last_attempt_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True),
+        UTCDateTime(),
         nullable=True,
     )
     delivered_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True),
+        UTCDateTime(),
         nullable=True,
     )

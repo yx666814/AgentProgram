@@ -39,7 +39,6 @@ def _data_root() -> Path:
 
 
 database_path = _data_root() / "data" / "agent.db"
-database_path.parent.mkdir(parents=True, exist_ok=True)
 database_url = f"sqlite:///{database_path.as_posix()}"
 config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 
@@ -65,6 +64,7 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
 
+    database_path.parent.mkdir(parents=True, exist_ok=True)
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
 
