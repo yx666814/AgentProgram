@@ -1,3 +1,8 @@
+import asyncio
+import os
+import sqlite3
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -5,9 +10,11 @@ from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 from pydantic import BaseModel, Field, field_validator
 
+import agent_platform.bootstrap.app_factory as app_factory_module
 from agent_platform.bootstrap.app_factory import create_app
 from agent_platform.config.settings import Settings
 from agent_platform.domain.shared.errors import DomainError
+from agent_platform.interfaces.api.errors import PublicHttpError
 
 AUTHORIZATION = {"Authorization": "Bearer local-secret"}
 LEAKED_SECRET = "leaked-secret"
@@ -16,6 +23,21 @@ RAW_VALIDATOR_MESSAGE = "validator exposed submitted value"
 
 def _settings(tmp_path: Path) -> Settings:
     return Settings(data_root=tmp_path, session_token="local-secret")
+
+
+def _apply_foundation_migration(data_root: Path) -> None:
+    backend_root = Path(__file__).resolve().parents[2]
+    environment = os.environ.copy()
+    environment["AGENT_PLATFORM_DATA_ROOT"] = str(data_root)
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        cwd=backend_root,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.asyncio
@@ -67,7 +89,38 @@ async def test_health_accepts_exact_local_bearer_token(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("configured_token", "raw_credential"),
+    [
+        ("local-secret", b"\xe9"),
+        ("local-secret", "秘密".encode()),
+        ("秘密", b"local-secret"),
+    ],
+)
+async def test_health_rejects_non_ascii_session_tokens_without_server_error(
+    tmp_path: Path,
+    configured_token: str,
+    raw_credential: bytes,
+) -> None:
+    app = create_app(Settings(data_root=tmp_path, session_token=configured_token))
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.get(
+            "/api/v1/health",
+            headers=[(b"Authorization", b"Bearer " + raw_credential)],
+        )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "auth.invalid_session"
+    assert configured_token not in response.text
+
+
+@pytest.mark.asyncio
 async def test_readiness_uses_lifespan_database_and_disposes_it(tmp_path: Path) -> None:
+    _apply_foundation_migration(tmp_path)
     app = create_app(_settings(tmp_path))
 
     async with app.router.lifespan_context(app):
@@ -83,6 +136,52 @@ async def test_readiness_uses_lifespan_database_and_disposes_it(tmp_path: Path) 
     assert response.status_code == 200
     assert response.json() == {"status": "ready", "database": "ready"}
     assert not hasattr(app.state, "database")
+
+
+@pytest.mark.asyncio
+async def test_readiness_rejects_fresh_unmigrated_database(tmp_path: Path) -> None:
+    app = create_app(_settings(tmp_path))
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            response = await client.get("/api/v1/readiness", headers=AUTHORIZATION)
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "readiness.unavailable"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mutation_sql",
+    [
+        "UPDATE alembic_version SET version_num = 'wrong_revision'",
+        "DELETE FROM alembic_version",
+        "DROP TABLE event_log",
+        "DROP TABLE outbox_events",
+    ],
+)
+async def test_readiness_rejects_incomplete_or_wrong_foundation_schema(
+    tmp_path: Path,
+    mutation_sql: str,
+) -> None:
+    settings = _settings(tmp_path)
+    _apply_foundation_migration(tmp_path)
+    with sqlite3.connect(settings.database_path) as connection:
+        connection.execute(mutation_sql)
+
+    app = create_app(settings)
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            response = await client.get("/api/v1/readiness", headers=AUTHORIZATION)
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "readiness.unavailable"
 
 
 @pytest.mark.asyncio
@@ -119,6 +218,51 @@ async def test_readiness_returns_stable_error_when_database_is_unavailable(
 
 
 @pytest.mark.asyncio
+async def test_lifespan_disposal_resists_repeated_cancellation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dispose_started = asyncio.Event()
+    allow_dispose = asyncio.Event()
+    dispose_completed = asyncio.Event()
+
+    class ControlledDatabase:
+        async def dispose(self) -> None:
+            dispose_started.set()
+            await allow_dispose.wait()
+            dispose_completed.set()
+
+    database = ControlledDatabase()
+    monkeypatch.setattr(app_factory_module, "create_database", lambda _: database)
+    app = create_app(_settings(tmp_path))
+    lifespan_entered = asyncio.Event()
+
+    async def run_lifespan() -> None:
+        async with app.router.lifespan_context(app):
+            lifespan_entered.set()
+            await asyncio.Event().wait()
+
+    lifespan_task = asyncio.create_task(run_lifespan())
+    await asyncio.wait_for(lifespan_entered.wait(), timeout=1)
+
+    lifespan_task.cancel()
+    await asyncio.wait_for(dispose_started.wait(), timeout=1)
+    lifespan_task.cancel()
+    await asyncio.sleep(0)
+    escaped_before_dispose = lifespan_task.done()
+    state_removed_before_dispose = not hasattr(app.state, "database")
+
+    allow_dispose.set()
+    with pytest.raises(asyncio.CancelledError):
+        await lifespan_task
+
+    assert escaped_before_dispose is False
+    assert state_removed_before_dispose is False
+    assert dispose_completed.is_set()
+    assert not hasattr(app.state, "database")
+
+
+@pytest.mark.asyncio
 async def test_domain_errors_use_stable_conflict_envelope(tmp_path: Path) -> None:
     app = create_app(_settings(tmp_path))
 
@@ -126,7 +270,12 @@ async def test_domain_errors_use_stable_conflict_envelope(tmp_path: Path) -> Non
         raise DomainError(
             code="workflow.invalid_state",
             message="Workflow state conflict",
-            details={"state": "completed"},
+            details={
+                "state": "completed",
+                "authorization": "Bearer domain-secret",
+                "nested": {"token": "domain-token-secret"},
+                "cause": RuntimeError("domain-exception-secret"),
+            },
         )
 
     app.add_api_route("/test/domain-error", raise_domain_error, methods=["GET"])
@@ -142,10 +291,18 @@ async def test_domain_errors_use_stable_conflict_envelope(tmp_path: Path) -> Non
         "error": {
             "code": "workflow.invalid_state",
             "message": "Workflow state conflict",
-            "details": {"state": "completed"},
+            "details": {
+                "state": "completed",
+                "authorization": "***",
+                "nested": {"token": "***"},
+                "cause": None,
+            },
             "retryable": False,
         }
     }
+    assert "domain-secret" not in response.text
+    assert "domain-token-secret" not in response.text
+    assert "domain-exception-secret" not in response.text
 
 
 class _ValidationPayload(BaseModel):
@@ -225,14 +382,10 @@ async def test_structured_http_error_preserves_nonstandard_status(tmp_path: Path
     app = create_app(_settings(tmp_path))
 
     async def raise_nonstandard_http_error() -> None:
-        raise HTTPException(
+        raise PublicHttpError(
             status_code=499,
-            detail={
-                "code": "client.closed",
-                "message": "Client closed",
-                "details": {},
-                "retryable": False,
-            },
+            code="client.closed",
+            message="Client closed",
         )
 
     app.add_api_route(
@@ -259,7 +412,55 @@ async def test_structured_http_error_preserves_nonstandard_status(tmp_path: Path
 
 
 @pytest.mark.asyncio
-async def test_unhandled_errors_are_generic_and_do_not_leak_secrets(tmp_path: Path) -> None:
+async def test_generic_http_exception_does_not_echo_untrusted_detail(tmp_path: Path) -> None:
+    app = create_app(_settings(tmp_path))
+
+    async def raise_untrusted_http_error() -> None:
+        raise HTTPException(
+            status_code=418,
+            detail={
+                "code": "auth.secret",
+                "message": "Bearer framework-secret",
+                "details": {
+                    "authorization": "Bearer framework-secret",
+                    "token": "framework-token-secret",
+                },
+                "retryable": True,
+            },
+            headers={"X-Safe-Header": "preserved"},
+        )
+
+    app.add_api_route(
+        "/test/untrusted-http-error",
+        raise_untrusted_http_error,
+        methods=["GET"],
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.get("/test/untrusted-http-error")
+
+    assert response.status_code == 418
+    assert response.headers["x-safe-header"] == "preserved"
+    assert response.json() == {
+        "error": {
+            "code": "http.error",
+            "message": "I'm a Teapot",
+            "details": {},
+            "retryable": False,
+        }
+    }
+    assert "framework-secret" not in response.text
+    assert "framework-token-secret" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_unhandled_errors_are_generic_and_do_not_leak_secrets(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     app = create_app(_settings(tmp_path))
 
     async def raise_unhandled_error() -> None:
@@ -268,7 +469,7 @@ async def test_unhandled_errors_are_generic_and_do_not_leak_secrets(tmp_path: Pa
     app.add_api_route("/test/unhandled-error", raise_unhandled_error, methods=["GET"])
 
     async with AsyncClient(
-        transport=ASGITransport(app=app, raise_app_exceptions=False),
+        transport=ASGITransport(app=app),
         base_url="http://test",
     ) as client:
         response = await client.get(
@@ -285,5 +486,10 @@ async def test_unhandled_errors_are_generic_and_do_not_leak_secrets(tmp_path: Pa
             "retryable": False,
         }
     }
+    captured_logs = capsys.readouterr()
     assert "internal-secret" not in response.text
     assert "local-secret" not in response.text
+    assert "internal-secret" not in captured_logs.out
+    assert "internal-secret" not in captured_logs.err
+    assert "local-secret" not in captured_logs.out
+    assert "local-secret" not in captured_logs.err

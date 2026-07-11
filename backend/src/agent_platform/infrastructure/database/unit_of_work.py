@@ -1,8 +1,8 @@
-import asyncio
 from types import TracebackType
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from agent_platform.infrastructure.async_cleanup import await_cancellation_resistant
 from agent_platform.infrastructure.database.repositories import (
     EventLogRepository,
     OutboxRepository,
@@ -39,32 +39,7 @@ class SqlAlchemyUnitOfWork:
     ) -> None:
         self._active = False
         self._closed = True
-        cleanup_task = asyncio.create_task(self._cleanup())
-        cancellation: asyncio.CancelledError | None = None
-
-        while not cleanup_task.done():
-            try:
-                await asyncio.shield(cleanup_task)
-            except asyncio.CancelledError as current_cancellation:
-                if cancellation is None:
-                    cancellation = current_cancellation
-            except BaseException:
-                break
-
-        try:
-            cleanup_error = cleanup_task.exception()
-        except asyncio.CancelledError as cleanup_cancellation:
-            if cancellation is not None:
-                raise cancellation from cleanup_cancellation
-            raise
-
-        if cleanup_error is not None:
-            if cancellation is not None:
-                raise cancellation from cleanup_error
-            raise cleanup_error
-
-        if cancellation is not None:
-            raise cancellation
+        await await_cancellation_resistant(self._cleanup())
 
     async def commit(self) -> None:
         self._require_active()
