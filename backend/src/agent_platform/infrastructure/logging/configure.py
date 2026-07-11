@@ -29,6 +29,8 @@ def _redact(value: Any, key: str | None = None) -> Any:
         }
     if isinstance(value, list):
         return [_redact(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact(item) for item in value)
     return value
 
 
@@ -40,18 +42,41 @@ def redact_secrets(_: Any, __: str, event_dict: dict[str, Any]) -> dict[str, Any
 
 
 def configure_logging(log_root: Path, level: str) -> None:
-    log_root.mkdir(parents=True, exist_ok=True)
     numeric_level = logging.getLevelNamesMapping().get(level.upper())
     if numeric_level is None:
         raise ValueError(f"invalid log level: {level}")
-    logging.basicConfig(level=numeric_level, format="%(message)s")
+    log_root.mkdir(parents=True, exist_ok=True)
+
+    redaction_processor = cast(Processor, redact_secrets)
+    timestamp_processor = structlog.processors.TimeStamper(fmt="iso", utc=True)
+    shared_processors: list[Processor] = [
+        redaction_processor,
+        timestamp_processor,
+        structlog.processors.add_log_level,
+    ]
+
     structlog.configure(
         processors=[
-            cast(Processor, redact_secrets),
-            structlog.processors.TimeStamper(fmt="iso", utc=True),
-            structlog.processors.add_log_level,
-            structlog.processors.JSONRenderer(),
+            *shared_processors,
+            structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ],
         wrapper_class=structlog.make_filtering_bound_logger(numeric_level),
-        logger_factory=structlog.PrintLoggerFactory(),
+        logger_factory=structlog.stdlib.LoggerFactory(),
     )
+
+    formatter = structlog.stdlib.ProcessorFormatter(
+        foreign_pre_chain=[structlog.stdlib.ExtraAdder(), *shared_processors],
+        processors=[
+            structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+            structlog.processors.JSONRenderer(),
+        ],
+    )
+    handler = logging.StreamHandler()
+    handler.setFormatter(formatter)
+
+    root_logger = logging.getLogger()
+    for existing_handler in root_logger.handlers[:]:
+        root_logger.removeHandler(existing_handler)
+        existing_handler.close()
+    root_logger.setLevel(numeric_level)
+    root_logger.addHandler(handler)
