@@ -1,4 +1,5 @@
 import json
+import warnings
 from datetime import datetime
 from typing import Any, cast
 
@@ -375,6 +376,54 @@ def test_encode_accepts_payload_mutated_to_valid_json_value() -> None:
         type="event",
     )
     message.payload["added"] = [None, True, 7, 2.5, "value", {"nested": [1]}]
+
+    assert FrameDecoder().feed(encode_frame(message)) == [message]
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    [
+        ("protocol_version", True),
+        ("protocol_version", 2),
+        ("sequence", "1"),
+        ("sequence", True),
+        ("sequence", -1),
+        ("message_id", ""),
+        ("project_id", ""),
+        ("task_id", ""),
+        ("correlation_id", ""),
+        ("type", "MUTATION_TYPE_MARKER"),
+        ("timestamp", datetime(2026, 7, 11)),
+    ],
+)
+def test_encode_rejects_invalid_message_attribute_mutation_without_warning(
+    field: str,
+    invalid_value: object,
+) -> None:
+    message = IpcMessage(message_id="m1", sequence=1, project_id="p", type="event")
+    setattr(message, field, invalid_value)
+
+    with warnings.catch_warnings(record=True) as captured_warnings:
+        warnings.simplefilter("always")
+        with pytest.raises(FramingError) as error:
+            encode_frame(message)
+
+    assert captured_warnings == []
+    assert str(error.value) == "IPC frame body is invalid"
+    assert "MUTATION_TYPE_MARKER" not in repr(error.value)
+    assert error.value.__cause__ is None
+    assert error.value.__context__ is None
+
+
+def test_encode_accepts_valid_message_attribute_and_payload_mutation() -> None:
+    message = IpcMessage(message_id="m1", sequence=1, project_id="p", type="event")
+    message.message_id = "m2"
+    message.correlation_id = "correlation_1"
+    message.sequence = 2
+    message.project_id = "project_2"
+    message.task_id = "task_2"
+    message.type = "ack"
+    message.payload["added"] = {"nested": [1, True, None]}
 
     assert FrameDecoder().feed(encode_frame(message)) == [message]
 

@@ -3,7 +3,7 @@ from typing import Never
 from pydantic import ValidationError
 from pydantic_core import PydanticSerializationError
 
-from agent_platform.interfaces.ipc.messages import IpcMessage, validate_json_payload
+from agent_platform.interfaces.ipc.messages import IpcMessage
 
 _HEADER_TERMINATOR = b"\r\n\r\n"
 MAX_HEADER_BYTES = 8 * 1024
@@ -15,9 +15,20 @@ class FramingError(ValueError):
 
 
 def encode_frame(message: IpcMessage) -> bytes:
+    candidate = {
+        "protocol_version": message.protocol_version,
+        "message_id": message.message_id,
+        "correlation_id": message.correlation_id,
+        "sequence": message.sequence,
+        "project_id": message.project_id,
+        "task_id": message.task_id,
+        "type": message.type,
+        "timestamp": message.timestamp,
+        "payload": message.payload,
+    }
     try:
-        validate_json_payload(message.payload)
-        body = message.model_dump_json().encode("utf-8")
+        validated_message = IpcMessage.model_validate(candidate, strict=True)
+        body = validated_message.model_dump_json().encode("utf-8")
     except (PydanticSerializationError, ValidationError, ValueError):
         body = None
     if body is None:
