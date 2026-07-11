@@ -21,6 +21,17 @@ class _PayloadMarker:
         return "PAYLOAD_VALUE_MARKER"
 
 
+def _deep_json_payload(depth: int, marker: str) -> dict[str, Any]:
+    root: dict[str, Any] = {}
+    current = root
+    for _ in range(depth):
+        nested: dict[str, Any] = {}
+        current["nested"] = nested
+        current = nested
+    current["secret"] = marker
+    return root
+
+
 def test_decoder_handles_partial_unicode_frame() -> None:
     message = IpcMessage(
         message_id="msg_1",
@@ -279,6 +290,23 @@ def test_message_rejects_cyclic_payload_without_recursion_error(cycle_kind: str)
     assert marker not in repr(error.value)
 
 
+def test_message_rejects_deep_acyclic_payload_without_recursion_error() -> None:
+    marker = "DEEP_CONSTRUCTION_PAYLOAD_MARKER"
+    payload = _deep_json_payload(1100, marker)
+
+    with pytest.raises(ValidationError) as error:
+        IpcMessage(
+            message_id="m1",
+            sequence=1,
+            project_id="p",
+            type="event",
+            payload=payload,
+        )
+
+    assert marker not in str(error.value)
+    assert marker not in repr(error.value)
+
+
 def test_encode_rejects_oversized_body() -> None:
     message = IpcMessage(
         message_id="m1",
@@ -426,6 +454,41 @@ def test_encode_accepts_valid_message_attribute_and_payload_mutation() -> None:
     message.payload["added"] = {"nested": [1, True, None]}
 
     assert FrameDecoder().feed(encode_frame(message)) == [message]
+
+
+@pytest.mark.parametrize("field", ["message_id", "sequence"])
+def test_encode_rejects_deleted_message_attribute(field: str) -> None:
+    marker = b"DELETED_ATTRIBUTE_PAYLOAD_MARKER"
+    message = IpcMessage(
+        message_id="m1",
+        sequence=1,
+        project_id="p",
+        type="event",
+        payload={"secret": marker.decode()},
+    )
+    delattr(message, field)
+
+    with pytest.raises(FramingError) as error:
+        encode_frame(message)
+
+    rendered = f"{error.value!s} {error.value!r} {error.value.args!r}".encode()
+    assert marker not in rendered
+    assert error.value.__cause__ is None
+    assert error.value.__context__ is None
+
+
+def test_encode_rejects_deep_acyclic_payload_added_by_mutation() -> None:
+    marker = b"DEEP_ENCODE_PAYLOAD_MARKER"
+    message = IpcMessage(message_id="m1", sequence=1, project_id="p", type="event")
+    message.payload = _deep_json_payload(1100, marker.decode())
+
+    with pytest.raises(FramingError) as error:
+        encode_frame(message)
+
+    rendered = f"{error.value!s} {error.value!r} {error.value.args!r}".encode()
+    assert marker not in rendered
+    assert error.value.__cause__ is None
+    assert error.value.__context__ is None
 
 
 def test_decoder_rejects_oversized_unterminated_header() -> None:

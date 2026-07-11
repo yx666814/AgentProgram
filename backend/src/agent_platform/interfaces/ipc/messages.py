@@ -14,9 +14,16 @@ MessageType = Literal[
     "shutdown",
 ]
 NonEmptyString = Annotated[str, Field(min_length=1)]
+_MAX_JSON_DEPTH = 64
 
 
-def _ensure_json_value(value: object, active_container_ids: set[int]) -> None:
+def _ensure_json_value(
+    value: object,
+    active_container_ids: set[int],
+    depth: int,
+) -> None:
+    if depth > _MAX_JSON_DEPTH:
+        raise ValueError("payload must contain only JSON values")
     value_type = type(value)
     if value is None or value_type in {bool, int, str}:
         return
@@ -31,7 +38,7 @@ def _ensure_json_value(value: object, active_container_ids: set[int]) -> None:
         active_container_ids.add(container_id)
         try:
             for item in cast(list[object], value):
-                _ensure_json_value(item, active_container_ids)
+                _ensure_json_value(item, active_container_ids, depth + 1)
         finally:
             active_container_ids.remove(container_id)
         return
@@ -44,7 +51,7 @@ def _ensure_json_value(value: object, active_container_ids: set[int]) -> None:
             for key, item in cast(dict[object, object], value).items():
                 if type(key) is not str:
                     raise ValueError("payload must contain only JSON values")
-                _ensure_json_value(item, active_container_ids)
+                _ensure_json_value(item, active_container_ids, depth + 1)
         finally:
             active_container_ids.remove(container_id)
         return
@@ -54,7 +61,7 @@ def _ensure_json_value(value: object, active_container_ids: set[int]) -> None:
 def validate_json_payload(value: object) -> dict[str, Any]:
     if type(value) is not dict:
         raise ValueError("payload must contain only JSON values")
-    _ensure_json_value(value, set())
+    _ensure_json_value(value, set(), 0)
     return cast(dict[str, Any], value)
 
 

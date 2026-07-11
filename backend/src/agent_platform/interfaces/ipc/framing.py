@@ -15,21 +15,28 @@ class FramingError(ValueError):
 
 
 def encode_frame(message: IpcMessage) -> bytes:
-    candidate = {
-        "protocol_version": message.protocol_version,
-        "message_id": message.message_id,
-        "correlation_id": message.correlation_id,
-        "sequence": message.sequence,
-        "project_id": message.project_id,
-        "task_id": message.task_id,
-        "type": message.type,
-        "timestamp": message.timestamp,
-        "payload": message.payload,
-    }
     try:
+        candidate = {
+            "protocol_version": message.protocol_version,
+            "message_id": message.message_id,
+            "correlation_id": message.correlation_id,
+            "sequence": message.sequence,
+            "project_id": message.project_id,
+            "task_id": message.task_id,
+            "type": message.type,
+            "timestamp": message.timestamp,
+            "payload": message.payload,
+        }
         validated_message = IpcMessage.model_validate(candidate, strict=True)
         body = validated_message.model_dump_json().encode("utf-8")
-    except (PydanticSerializationError, ValidationError, ValueError):
+    except (
+        AttributeError,
+        PydanticSerializationError,
+        RecursionError,
+        TypeError,
+        ValidationError,
+        ValueError,
+    ):
         body = None
     if body is None:
         raise FramingError("IPC frame body is invalid") from None
