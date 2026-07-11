@@ -20,3 +20,11 @@ def test_settings_rejects_empty_session_token(tmp_path: Path) -> None:
         assert "session_token" in str(exc)
     else:
         raise AssertionError("empty session token must fail")
+
+
+def test_settings_hides_session_token_from_repr_and_dump(tmp_path: Path) -> None:
+    settings = Settings(data_root=tmp_path, session_token="super-secret")
+
+    assert "super-secret" not in repr(settings)
+    assert "session_token" not in settings.model_dump()
+    assert settings.session_token == "super-secret"

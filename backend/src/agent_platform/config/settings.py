@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 0
     data_root: Path = Field(default_factory=default_data_root)
-    session_token: str
+    session_token: str = Field(repr=False, exclude=True)
     log_level: str = "INFO"
     worker_heartbeat_timeout_seconds: float = 15.0
 
