@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 from httpx import ASGITransport, AsyncClient
 from pydantic import BaseModel, Field, field_validator
+from pydantic_core import PydanticCustomError
 
 import agent_platform.bootstrap.app_factory as app_factory_module
 from agent_platform.bootstrap.app_factory import create_app
@@ -24,6 +25,7 @@ RAW_VALIDATOR_MESSAGE = "validator exposed submitted value"
 DICTIONARY_KEY_SECRET = "dictionary-key-secret"
 DICTIONARY_VALUE_SECRET = "dictionary-value-secret"
 RAW_DICTIONARY_ERROR_MESSAGE = "Input should be a valid integer"
+TYPE_SECRET_VALUE = "type-secret-value"
 
 
 def _settings(tmp_path: Path) -> Settings:
@@ -361,6 +363,15 @@ class _DictionaryKeyValidationPayload(BaseModel):
     values: dict[int, int]
 
 
+class _DynamicTypeValidationPayload(BaseModel):
+    value: str
+
+    @field_validator("value")
+    @classmethod
+    def reject_value(cls, value: str) -> str:
+        raise PydanticCustomError(f"custom_{value}", "Invalid custom value")
+
+
 @pytest.mark.asyncio
 async def test_request_validation_errors_do_not_echo_input(tmp_path: Path) -> None:
     app = create_app(_settings(tmp_path))
@@ -385,7 +396,7 @@ async def test_request_validation_errors_do_not_echo_input(tmp_path: Path) -> No
     assert payload["error"]["code"] == "request.validation_failed"
     assert payload["error"]["message"] == "Request validation failed"
     assert payload["error"]["retryable"] is False
-    assert payload["error"]["details"]["errors"]
+    assert payload["error"]["details"] == {}
     assert raw_secret not in response.text
 
 
@@ -410,13 +421,11 @@ async def test_request_validation_sanitizes_validator_messages_and_context(
         )
 
     payload = response.json()
-    errors = payload["error"]["details"]["errors"]
     assert response.status_code == 422
     assert payload["error"]["code"] == "request.validation_failed"
-    assert errors
+    assert payload["error"]["details"] == {}
     assert LEAKED_SECRET not in response.text
     assert RAW_VALIDATOR_MESSAGE not in response.text
-    assert all(set(error) == {"type"} for error in errors)
 
 
 @pytest.mark.asyncio
@@ -442,14 +451,42 @@ async def test_request_validation_does_not_echo_dictionary_keys(tmp_path: Path) 
         )
 
     payload = response.json()
-    errors = payload["error"]["details"]["errors"]
     assert response.status_code == 422
     assert payload["error"]["code"] == "request.validation_failed"
-    assert errors
+    assert payload["error"]["details"] == {}
     assert DICTIONARY_KEY_SECRET not in response.text
     assert DICTIONARY_VALUE_SECRET not in response.text
     assert RAW_DICTIONARY_ERROR_MESSAGE not in response.text
-    assert all(set(error) == {"type"} for error in errors)
+
+
+@pytest.mark.asyncio
+async def test_request_validation_does_not_echo_dynamic_error_types(tmp_path: Path) -> None:
+    app = create_app(_settings(tmp_path))
+
+    async def validate_payload(payload: _DynamicTypeValidationPayload) -> None:
+        del payload
+
+    app.add_api_route(
+        "/test/dynamic-type-validation",
+        validate_payload,
+        methods=["POST"],
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.post(
+            "/test/dynamic-type-validation",
+            json={"value": TYPE_SECRET_VALUE},
+        )
+
+    payload = response.json()
+    assert response.status_code == 422
+    assert payload["error"]["code"] == "request.validation_failed"
+    assert payload["error"]["details"] == {}
+    assert TYPE_SECRET_VALUE not in response.text
+    assert f"custom_{TYPE_SECRET_VALUE}" not in response.text
 
 
 @pytest.mark.asyncio

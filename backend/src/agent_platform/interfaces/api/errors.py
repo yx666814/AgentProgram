@@ -126,17 +126,10 @@ def _sanitize_detail_value(value: Any, *, key: str | None = None) -> Any:
 async def _validation_error_handler(_: Request, exc: Exception) -> JSONResponse:
     if not isinstance(exc, RequestValidationError):
         raise TypeError("Validation error handler received an unexpected exception")
-    sanitized_errors = [
-        {
-            "type": str(error.get("type", "validation_error")),
-        }
-        for error in exc.errors()
-    ]
     return error_response(
         status_code=422,
         code="request.validation_failed",
         message="Request validation failed",
-        details={"errors": sanitized_errors},
     )
 
 
