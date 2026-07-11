@@ -74,6 +74,34 @@ def test_message_rejects_empty_required_identifier(field: str) -> None:
         IpcMessage.model_validate(data)
 
 
+@pytest.mark.parametrize("field", ["correlation_id", "task_id"])
+def test_message_rejects_empty_optional_identifier(field: str) -> None:
+    data = {
+        "message_id": "m1",
+        "sequence": 1,
+        "project_id": "p",
+        "type": "event",
+        field: "",
+    }
+
+    with pytest.raises(ValidationError):
+        IpcMessage.model_validate(data)
+
+
+def test_message_allows_none_for_optional_identifiers() -> None:
+    message = IpcMessage(
+        message_id="m1",
+        correlation_id=None,
+        sequence=1,
+        project_id="p",
+        task_id=None,
+        type="event",
+    )
+
+    assert message.correlation_id is None
+    assert message.task_id is None
+
+
 def test_message_rejects_naive_timestamp() -> None:
     with pytest.raises(ValidationError):
         IpcMessage(
@@ -111,7 +139,7 @@ def test_decoder_rejects_oversized_unterminated_header() -> None:
     decoder = FrameDecoder()
 
     with pytest.raises(FramingError):
-        decoder.feed(b"x" * (MAX_HEADER_BYTES + 1))
+        decoder.feed(b"x" * (MAX_HEADER_BYTES + 4))
 
 
 def test_decoder_rejects_non_ascii_header() -> None:
@@ -128,6 +156,25 @@ def test_decoder_rejects_malformed_header_line() -> None:
 
     with pytest.raises(FramingError):
         decoder.feed(frame)
+
+
+def test_decoder_rejects_leading_empty_header_line() -> None:
+    message = IpcMessage(message_id="m1", sequence=1, project_id="p", type="event")
+    body = message.model_dump_json().encode("utf-8")
+    frame = f"\r\nContent-Length: {len(body)}\r\nProtocol-Version: 1\r\n\r\n".encode() + body
+
+    with pytest.raises(FramingError):
+        FrameDecoder().feed(frame)
+
+
+@pytest.mark.parametrize("raw_name", [" Content-Length", "Content-Length "])
+def test_decoder_rejects_header_name_whitespace(raw_name: str) -> None:
+    message = IpcMessage(message_id="m1", sequence=1, project_id="p", type="event")
+    body = message.model_dump_json().encode("utf-8")
+    frame = f"{raw_name}: {len(body)}\r\nProtocol-Version: 1\r\n\r\n".encode() + body
+
+    with pytest.raises(FramingError):
+        FrameDecoder().feed(frame)
 
 
 def test_decoder_rejects_duplicate_header_case_insensitively() -> None:
@@ -274,6 +321,28 @@ def test_decoder_rejects_terminated_oversized_header() -> None:
 
     with pytest.raises(FramingError):
         FrameDecoder().feed(frame)
+
+
+@pytest.mark.parametrize("delimiter_prefix_length", [1, 2, 3])
+def test_decoder_accepts_exact_max_header_with_split_delimiter(
+    delimiter_prefix_length: int,
+) -> None:
+    message = IpcMessage(message_id="m1", sequence=1, project_id="p", type="event")
+    body = message.model_dump_json().encode("utf-8")
+    fixed_header = b"Content-Length:" + str(len(body)).encode() + b"\r\nProtocol-Version: 1"
+    header = (
+        b"Content-Length:"
+        + (b" " * (MAX_HEADER_BYTES - len(fixed_header)))
+        + str(len(body)).encode()
+        + b"\r\nProtocol-Version: 1"
+    )
+    delimiter = b"\r\n\r\n"
+    decoder = FrameDecoder()
+
+    assert len(header) == MAX_HEADER_BYTES
+    assert FrameDecoder().feed(header + delimiter + body) == [message]
+    assert decoder.feed(header + delimiter[:delimiter_prefix_length]) == []
+    assert decoder.feed(delimiter[delimiter_prefix_length:] + body) == [message]
 
 
 def test_decoder_clears_buffer_after_error_and_accepts_fresh_frame() -> None:

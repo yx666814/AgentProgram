@@ -7,6 +7,7 @@ from agent_platform.interfaces.ipc.messages import IpcMessage
 _HEADER_TERMINATOR = b"\r\n\r\n"
 MAX_HEADER_BYTES = 8 * 1024
 MAX_BODY_BYTES = 1024 * 1024
+_MAX_UNTERMINATED_HEADER_BYTES = MAX_HEADER_BYTES + len(_HEADER_TERMINATOR) - 1
 
 
 class FramingError(ValueError):
@@ -38,7 +39,7 @@ class FrameDecoder:
         while True:
             header_end = self._buffer.find(_HEADER_TERMINATOR)
             if header_end < 0:
-                if len(self._buffer) > MAX_HEADER_BYTES:
+                if len(self._buffer) > _MAX_UNTERMINATED_HEADER_BYTES:
                     self._fail("IPC frame header exceeds maximum size")
                 return messages
             if header_end > MAX_HEADER_BYTES:
@@ -49,13 +50,15 @@ class FrameDecoder:
             except UnicodeDecodeError as error:
                 self._fail("IPC frame header is not ASCII", error)
             headers: dict[str, str] = {}
-            for line in header.split("\r\n"):
-                if not line:
-                    continue
+            header_lines = header.split("\r\n")
+            if len(header_lines) != 2 or any(not line for line in header_lines):
+                self._fail("IPC frame header must contain exactly two nonempty lines")
+            for line in header_lines:
                 if line.count(":") != 1:
                     self._fail("IPC frame header line is malformed")
-                name, value = (part.strip() for part in line.split(":", 1))
-                if not name or not value:
+                name, raw_value = line.split(":", 1)
+                value = raw_value.strip()
+                if not name or name != name.strip() or not value:
                     self._fail("IPC frame header line is malformed")
                 normalized_name = name.lower()
                 if normalized_name in headers:
