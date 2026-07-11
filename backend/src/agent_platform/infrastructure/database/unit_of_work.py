@@ -40,14 +40,31 @@ class SqlAlchemyUnitOfWork:
         self._active = False
         self._closed = True
         cleanup_task = asyncio.create_task(self._cleanup())
-        try:
-            await asyncio.shield(cleanup_task)
-        except asyncio.CancelledError as cancellation:
+        cancellation: asyncio.CancelledError | None = None
+
+        while not cleanup_task.done():
             try:
-                await cleanup_task
-            except BaseException as cleanup_error:
-                raise cancellation from cleanup_error
+                await asyncio.shield(cleanup_task)
+            except asyncio.CancelledError as current_cancellation:
+                if cancellation is None:
+                    cancellation = current_cancellation
+            except BaseException:
+                break
+
+        try:
+            cleanup_error = cleanup_task.exception()
+        except asyncio.CancelledError as cleanup_cancellation:
+            if cancellation is not None:
+                raise cancellation from cleanup_cancellation
             raise
+
+        if cleanup_error is not None:
+            if cancellation is not None:
+                raise cancellation from cleanup_error
+            raise cleanup_error
+
+        if cancellation is not None:
+            raise cancellation
 
     async def commit(self) -> None:
         self._require_active()

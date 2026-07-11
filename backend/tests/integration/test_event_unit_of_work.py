@@ -198,13 +198,14 @@ async def test_retained_repository_cannot_persist_after_unit_of_work_exit(
 
 
 @pytest.mark.asyncio
-async def test_cancellation_waits_for_active_transaction_cleanup(
+async def test_repeated_cancellation_waits_for_active_transaction_cleanup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     database = create_database(tmp_path / "agent.db")
     uow = SqlAlchemyUnitOfWork(database.sessions)
     allow_close = asyncio.Event()
+    close_completed = asyncio.Event()
     close_started = asyncio.Event()
     original_close: Callable[[], Awaitable[None]] | None = None
 
@@ -230,6 +231,7 @@ async def test_cancellation_waits_for_active_transaction_cleanup(
             close_started.set()
             await allow_close.wait()
             await original_close()
+            close_completed.set()
 
         monkeypatch.setattr(uow.session, "close", slow_close)
         assert uow.session.in_transaction()
@@ -237,9 +239,30 @@ async def test_cancellation_waits_for_active_transaction_cleanup(
         await asyncio.wait_for(close_started.wait(), timeout=1)
 
         exit_task.cancel()
+        await asyncio.sleep(0)
+        assert not exit_task.done()
+        exit_task.cancel()
+        await asyncio.sleep(0)
+        escaped_before_close = exit_task.done()
+
         allow_close.set()
         with pytest.raises(asyncio.CancelledError):
             await exit_task
+        cleanup_completed = close_completed.is_set()
+
+        repository_error: InvalidRequestError | None = None
+        try:
+            await uow.events.append(
+                event_type="reuse.persisted",
+                aggregate_type="test",
+                aggregate_id="test_1",
+                payload={},
+                occurred_at=datetime.now(UTC),
+            )
+        except InvalidRequestError as exc:
+            repository_error = exc
+        else:
+            await uow.session.commit()
 
         pool = cast(_PoolWithCheckedOut, database.engine.sync_engine.pool)
         checked_out = pool.checkedout()
@@ -248,8 +271,22 @@ async def test_cancellation_waits_for_active_transaction_cleanup(
             event_count = await session.scalar(select(func.count()).select_from(EventLogRow))
     finally:
         allow_close.set()
-        if original_close is not None and uow.session.in_transaction():
+        if original_close is not None and not close_completed.is_set():
             await original_close()
         await database.dispose()
 
-    assert (checked_out, in_transaction, event_count) == (0, False, 0)
+    assert (
+        escaped_before_close,
+        cleanup_completed,
+        checked_out,
+        in_transaction,
+        event_count,
+    ) == (
+        False,
+        True,
+        0,
+        False,
+        0,
+    )
+    assert repository_error is not None
+    assert "permanently closed" in str(repository_error)
