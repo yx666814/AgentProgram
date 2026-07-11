@@ -17,6 +17,7 @@ if str(SRC_ROOT) not in sys.path:
 
 from agent_platform.infrastructure.database import models  # noqa: E402
 from agent_platform.infrastructure.database.base import Base  # noqa: E402
+from agent_platform.infrastructure.database.migration_rendering import render_item  # noqa: E402
 
 _MODEL_TABLES = (models.EventLogRow.__table__, models.OutboxEventRow.__table__)
 
@@ -51,6 +52,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        render_item=render_item,
     )
 
     with context.begin_transaction():
@@ -66,7 +68,11 @@ def run_migrations_online() -> None:
 
     database_path.parent.mkdir(parents=True, exist_ok=True)
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            render_item=render_item,
+        )
 
         with context.begin_transaction():
             context.run_migrations()
