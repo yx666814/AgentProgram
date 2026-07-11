@@ -13,29 +13,27 @@
 - `04-agent-roles.md`：五种 Agent 的职责和权限。
 - `roles/README.md` 与 `roles/*-role-card.md`：五个阶段的详细角色卡、默认能力、权限申请、P2R 规则和系统提示词。
 
-## 3. 后续设计文档
+## 3. 后端设计文档
 
-后续主题必须分别讨论、比较方案并获得用户确认后再写入：
+以下后端主题已经分别讨论并形成初稿：
 
 | 顺序 | 文件 | 需要确定的内容 |
 |---|---|---|
-| 06 | `06-stage-contracts.md` | 五阶段输入、产出文件、必需章节、写入路径和门禁规则 |
-| 07 | `07-handoff-protocol.md` | `HandoffPacket` 字段、版本、校验、兼容和失效规则 |
-| 08 | `08-backend-architecture.md` | 后端模块、进程边界、依赖方向和服务生命周期 |
-| 09 | `09-data-model.md` | 实体、关系、数据库表、事务和迁移策略 |
-| 10 | `10-api-and-events.md` | REST、WebSocket、认证、错误格式和事件序号 |
-| 11 | `11-agent-runtime.md` | Agent 执行循环、多模型讨论、上下文和取消机制 |
-| 12 | `12-tool-security.md` | 工具协议、沙箱、命令策略、审批和审计 |
-| 13 | `13-workflow-recovery.md` | 并发控制、暂停、恢复、幂等、重试和崩溃处理 |
-| 14 | `14-desktop-integration.md` | 桌面壳、后端子进程、端口、令牌和系统密钥存储 |
-| 15 | `15-testing-strategy.md` | 单元、集成、契约、安全和端到端验收 |
+| 06 | `06-stage-contracts.md` | 已形成初稿：五阶段输入、产出、完整项目检查点和门禁规则 |
+| 07 | `07-handoff-protocol.md` | 已形成初稿：`HandoffPacket`、`ChangeRequest`、版本和失效规则 |
+| 08 | `08-backend-architecture.md` | 已形成初稿：主进程、Project Worker、IPC、模块与生命周期 |
+| 09 | `09-data-model.md` | 已形成初稿：实体、关系、SQLite、事务、事件和迁移 |
+| 10 | `10-api-and-events.md` | 已形成初稿：REST、WebSocket、认证、错误和事件序号 |
+| 11 | `11-agent-runtime.md` | 已形成初稿：Agent 执行、一主双校、上下文和取消 |
+| 12 | `12-tool-security.md` | 已形成初稿：工具协议、路径、命令、权限和审计 |
+| 13 | `13-workflow-recovery.md` | 已形成初稿：并发、暂停、恢复、重试和崩溃处理 |
+| 14 | `14-desktop-integration.md` | 已形成初稿：Electron、Python Sidecar、端口、令牌和密钥 |
+| 15 | `15-testing-strategy.md` | 已形成初稿：单元、集成、契约、安全和端到端验收 |
 | 16 | `16-development-plan.md` | 实施任务、文件范围、测试命令和阶段交付顺序 |
 
 ## 4. 推荐编写顺序
 
-下一轮从 `06-stage-contracts.md` 开始，因为阶段契约决定数据模型、API、Agent 工具权限和质量门设计。
-
-之后按以下顺序推进：
+当前已按以下顺序完成后端规格：
 
 1. 阶段契约。
 2. 交接协议。
@@ -47,7 +45,7 @@
 8. 状态恢复。
 9. 桌面集成。
 10. 测试策略。
-11. 开发计划。
+11. 开发计划将在用户审阅并批准 00-15 与角色卡后单独生成。
 
 ## 5. 单篇文档模板
 

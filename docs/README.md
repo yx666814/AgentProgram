@@ -20,6 +20,16 @@
 | 04 | [Agent 职责](04-agent-roles.md) | 五种角色的输入、输出和权限边界 | 已形成初稿 |
 | 05 | [文档计划](05-documentation-plan.md) | 后续规格文档及编写规则 | 已形成初稿 |
 | Roles | [详细角色卡](roles/README.md) | 五个阶段的职责、工具权限、强制规则和模型提示词 | 已形成初稿 |
+| 06 | [阶段契约](06-stage-contracts.md) | 完整项目、五阶段输入输出、门禁与失效规则 | 已形成初稿 |
+| 07 | [交接协议](07-handoff-protocol.md) | HandoffPacket、ChangeRequest 与版本规则 | 已形成初稿 |
+| 08 | [后端架构](08-backend-architecture.md) | 主进程、Project Worker、IPC 和模块结构 | 已形成初稿 |
+| 09 | [数据模型](09-data-model.md) | SQLite、实体、事务、事件和快照引用 | 已形成初稿 |
+| 10 | [API 与事件](10-api-and-events.md) | REST、WebSocket、认证和事件重放 | 已形成初稿 |
+| 11 | [Agent Runtime](11-agent-runtime.md) | 上下文、一主双校、模型和任务执行 | 已形成初稿 |
+| 12 | [工具安全](12-tool-security.md) | 工具审批、路径、Shell、冲突和审计 | 已形成初稿 |
+| 13 | [恢复机制](13-workflow-recovery.md) | 状态机、并发、暂停、崩溃和恢复 | 已形成初稿 |
+| 14 | [桌面集成](14-desktop-integration.md) | Windows Electron 与 Python Sidecar 契约 | 已形成初稿 |
+| 15 | [测试策略](15-testing-strategy.md) | 单元、契约、安全、进程和 E2E 验收 | 已形成初稿 |
 
 `docs/superpowers/` 中保存此前的设计草案和实施计划，仅作为历史参考。若历史草案与本目录已批准文档冲突，以较新的已批准文档为准。
 

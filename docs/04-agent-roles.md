@@ -153,7 +153,7 @@
 - 可以读取已批准需求和设计文件。
 - 可以写入代码、测试、构建配置和 Builder 报告允许路径。
 - 不得修改批准需求和设计文档。
-- 安装依赖、Git 提交和高风险 Shell 操作需要策略许可或用户确认。
+- 安装依赖、Git 提交和高风险 Shell 操作必须符合 Tool Policy；超出 Builder 默认能力时创建 CapabilityRequest 由用户弹窗批准。
 
 ### 通过条件
 
@@ -219,9 +219,9 @@
 
 ### 目标
 
-把已批准实现整理为可验证、可安装和可交付的本地产物。
+把已批准实现整理为清楚、可操作的部署准备方案和部署相关文件。
 
-MVP 中的 Deployer 不直接操作真实生产环境。
+MVP 中的 Deployer 不直接操作真实生产环境，也不运行本地 Docker 构建、打包或部署验证。
 
 ### 输入
 
@@ -231,26 +231,26 @@ MVP 中的 Deployer 不直接操作真实生产环境。
 
 ### 主要职责
 
-- 执行最终构建。
-- 执行 Smoke Test。
-- 生成交付包和校验值。
-- 生成版本、安装、启动和回滚说明。
+- 生成部署计划、环境、安装、启动、停止和回滚说明。
+- 生成允许的 Dockerfile、Compose、CI、脚本和部署配置草案。
+- 生成版本与发布说明。
 - 汇总已知问题。
-- 验证交付包在规定环境中可以运行。
+- 明确标记所有未实际验证的假设和步骤。
 
 ### 正式产出
 
-- `dist/` 或平台约定的交付目录。
-- `specs/delivery.md`。
+- `specs/deployment/**`。
+- Stage Contract 允许的部署相关文件。
 
 交付说明必须包含：
 
 - Version
-- Build Environment
-- Build Command
-- Test Summary
-- Deliverables
-- Checksums
+- Target Environment
+- Prerequisites
+- Configuration
+- Deployment Steps
+- Health Check Plan
+- Logging and Troubleshooting
 - Installation
 - Startup Instructions
 - Known Issues
@@ -259,17 +259,17 @@ MVP 中的 Deployer 不直接操作真实生产环境。
 ### 权限边界
 
 - 可以读取已批准代码和交付配置。
-- 可以写入交付目录和 Deployer 报告路径。
+- 可以写入 Stage Contract 允许的部署文档和部署配置路径。
 - 不得修改产品功能和业务逻辑。
 - 发现代码或构建配置问题时返回 Builder。
-- 不得未经用户明确授权访问线上生产环境。
+- 第一版不得访问线上生产环境，也不能通过权限申请开启真实部署。
 
 ### 通过条件
 
 - Reviewer 结论为 `PASS`。
-- 交付产物真实存在。
-- 最终构建和 Smoke Test 通过。
-- 安装、启动和回滚说明完整。
+- 必需部署文档和声明的部署文件真实存在。
+- 安装、启动、停止、健康检查和回滚说明完整。
+- 不含真实凭据，未验证内容明确标记。
 
 ## 7. 用户角色
 
@@ -279,7 +279,7 @@ MVP 中的 Deployer 不直接操作真实生产环境。
 - 配置和启停模型。
 - 确认需求和重要设计决定。
 - 批准、驳回或要求修改阶段结果。
-- 批准高风险工具操作。
+- 处理 CapabilityRequest，并批准或拒绝超出角色默认能力的操作。
 - 暂停、恢复和停止工作流。
 - 查看完整审计记录。
 
