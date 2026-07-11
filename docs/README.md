@@ -31,7 +31,20 @@
 | 14 | [桌面集成](14-desktop-integration.md) | Windows Electron 与 Python Sidecar 契约 | 已形成初稿 |
 | 15 | [测试策略](15-testing-strategy.md) | 单元、契约、安全、进程和 E2E 验收 | 已形成初稿 |
 
-`docs/superpowers/` 中保存此前的设计草案和实施计划，仅作为历史参考。若历史草案与本目录已批准文档冲突，以较新的已批准文档为准。
+## 后端实施计划
+
+后端按以下顺序执行，后一份计划必须通过前一份计划的验收：
+
+1. [Backend MVP Roadmap](superpowers/plans/2026-07-11-backend-mvp-roadmap.md)
+2. [Backend Foundation](superpowers/plans/2026-07-11-backend-foundation.md)
+3. [Projects, Workspaces and Checkpoints](superpowers/plans/2026-07-11-project-workspace-checkpoints.md)
+4. [Workflow, Rooms and Persistent Chat](superpowers/plans/2026-07-11-workflow-rooms-chat.md)
+5. [Model Profiles and Agent Runtime](superpowers/plans/2026-07-11-models-agent-runtime.md)
+6. [Tool Security and Capability Requests](superpowers/plans/2026-07-11-tool-security.md)
+7. [Stage Contracts, Gates and Handoffs](superpowers/plans/2026-07-11-stage-gates-handoffs.md)
+8. [Recovery, Desktop Contract and E2E](superpowers/plans/2026-07-11-recovery-desktop-e2e.md)
+
+`docs/superpowers/plans/2026-07-08-agent-platform.md` 是较早的历史草案。若它与 00–15 已批准规格或 2026-07-11 实施计划冲突，以 00–15 规格和 2026-07-11 计划为准。
 
 ## 规范性用语
 
