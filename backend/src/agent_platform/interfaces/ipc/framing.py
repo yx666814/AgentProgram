@@ -38,12 +38,19 @@ class FrameDecoder:
         while True:
             header_end = self._buffer.find(_HEADER_TERMINATOR)
             if header_end < 0:
-                if len(self._buffer) > MAX_HEADER_BYTES:
-                    overflow = bytes(self._buffer[MAX_HEADER_BYTES:])
-                    if len(overflow) >= len(_HEADER_TERMINATOR) or not (
-                        _HEADER_TERMINATOR.startswith(overflow)
-                    ):
-                        self._fail("IPC frame header exceeds maximum size")
+                partial_delimiter_length = 0
+                maximum_partial_length = min(
+                    len(_HEADER_TERMINATOR) - 1,
+                    len(self._buffer),
+                )
+                for suffix_length in range(maximum_partial_length, 0, -1):
+                    suffix = bytes(self._buffer[-suffix_length:])
+                    if _HEADER_TERMINATOR.startswith(suffix):
+                        partial_delimiter_length = suffix_length
+                        break
+                candidate_header_length = len(self._buffer) - partial_delimiter_length
+                if candidate_header_length > MAX_HEADER_BYTES:
+                    self._fail("IPC frame header exceeds maximum size")
                 return messages
             if header_end > MAX_HEADER_BYTES:
                 self._fail("IPC frame header exceeds maximum size")

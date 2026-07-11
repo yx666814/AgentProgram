@@ -355,6 +355,30 @@ def test_decoder_accepts_exact_max_header_with_split_delimiter(
     assert decoder.feed(delimiter[delimiter_prefix_length:] + body) == [message]
 
 
+@pytest.mark.parametrize("header_shortfall", [1, 2, 3])
+@pytest.mark.parametrize("delimiter_prefix_length", [1, 2, 3])
+def test_decoder_accepts_near_max_header_with_split_delimiter(
+    header_shortfall: int,
+    delimiter_prefix_length: int,
+) -> None:
+    message = IpcMessage(message_id="m1", sequence=1, project_id="p", type="event")
+    body = message.model_dump_json().encode("utf-8")
+    fixed_header = b"Content-Length:" + str(len(body)).encode() + b"\r\nProtocol-Version: 1"
+    target_header_length = MAX_HEADER_BYTES - header_shortfall
+    header = (
+        b"Content-Length:"
+        + (b" " * (target_header_length - len(fixed_header)))
+        + str(len(body)).encode()
+        + b"\r\nProtocol-Version: 1"
+    )
+    delimiter = b"\r\n\r\n"
+    decoder = FrameDecoder()
+
+    assert len(header) == target_header_length
+    assert decoder.feed(header + delimiter[:delimiter_prefix_length]) == []
+    assert decoder.feed(delimiter[delimiter_prefix_length:] + body) == [message]
+
+
 def test_decoder_clears_buffer_after_error_and_accepts_fresh_frame() -> None:
     decoder = FrameDecoder()
     invalid = b"Content-Length: 1\r\nProtocol-Version: 1\r\n\r\nx"
