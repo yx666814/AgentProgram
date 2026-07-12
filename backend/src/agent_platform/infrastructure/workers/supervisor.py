@@ -111,7 +111,7 @@ class WorkerHandle:
     outbound_sequence: int
     last_heartbeat_at: datetime
     pending: dict[str, asyncio.Future[IpcMessage]]
-    process_group_id: int | None
+    process_group_id: int | None = None
     job: WindowsJob | None = field(default=None, repr=False)
     last_inbound_sequence: int = 0
     seen_inbound_message_ids: set[str] = field(default_factory=set, repr=False)
