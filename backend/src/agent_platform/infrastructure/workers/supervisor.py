@@ -257,52 +257,174 @@ class WorkerSupervisor:
             if handle._stop_task is None:
                 handle._stopping = True
                 handle._stopping_event.set()
-                self._fail_pending(handle, WorkerUnavailableError("worker is unavailable"))
-                handle._stop_task = asyncio.create_task(
-                    self._stop_handle(handle, graceful=graceful)
+                setup_errors: list[BaseException] = []
+                loop = asyncio.get_running_loop()
+                stop_coroutine = self._run_stop_task(
+                    handle,
+                    graceful=graceful,
+                    setup_errors=setup_errors,
                 )
+                try:
+                    handle._stop_task = loop.create_task(stop_coroutine)
+                except BaseException as error:
+                    stop_coroutine.close()
+                    setup_errors.append(error)
+                    handle._stop_task = asyncio.Task(
+                        self._run_stop_task(
+                            handle,
+                            graceful=graceful,
+                            setup_errors=setup_errors,
+                        ),
+                        loop=loop,
+                    )
+                try:
+                    self._fail_pending(
+                        handle,
+                        WorkerUnavailableError("worker is unavailable"),
+                    )
+                except BaseException as error:
+                    setup_errors.append(error)
             stop_task = handle._stop_task
         if remove_worker_early:
             await self._remove_worker_registry(handle)
         return stop_task
 
-    async def _stop_handle(self, handle: WorkerHandle, *, graceful: bool) -> None:
-        descendants = await asyncio.to_thread(_capture_descendants_sync, handle.process.pid)
+    async def _run_stop_task(
+        self,
+        handle: WorkerHandle,
+        *,
+        graceful: bool,
+        setup_errors: list[BaseException],
+    ) -> None:
+        stop_error: BaseException | None = None
         try:
-            if graceful and handle.process.returncode is None:
-                deadline = asyncio.get_running_loop().time() + self._shutdown_timeout_seconds
-                try:
-                    await self._request(
-                        handle,
-                        "shutdown",
-                        {},
-                        timeout_seconds=max(0.0, deadline - asyncio.get_running_loop().time()),
-                        allow_stopping=True,
-                    )
-                except (OSError, WorkerError):
-                    pass
+            await self._stop_handle(handle, graceful=graceful)
+        except BaseException as error:
+            stop_error = error
+        if setup_errors:
+            if stop_error is not None:
+                raise setup_errors[0] from stop_error
+            raise setup_errors[0]
+        if stop_error is not None:
+            raise stop_error
+
+    async def _stop_handle(self, handle: WorkerHandle, *, graceful: bool) -> None:
+        first_error: BaseException | None = None
+
+        def remember_error(error: BaseException) -> None:
+            nonlocal first_error
+            if first_error is None:
+                first_error = error
+
+        descendants: list[Any] = []
+        capture_failed = False
+        try:
+            descendants = await asyncio.to_thread(
+                _capture_descendants_sync,
+                handle.process.pid,
+            )
+        except BaseException as error:
+            capture_failed = True
+            remember_error(error)
+
+        if capture_failed and handle.process.returncode is None:
+            try:
+                await self._terminate_process_tree(handle.process)
+            except BaseException as error:
+                remember_error(error)
+
+        if graceful and handle.process.returncode is None:
+            deadline = asyncio.get_running_loop().time() + self._shutdown_timeout_seconds
+            try:
+                await self._request(
+                    handle,
+                    "shutdown",
+                    {},
+                    timeout_seconds=max(0.0, deadline - asyncio.get_running_loop().time()),
+                    allow_stopping=True,
+                )
+            except (OSError, WorkerError):
+                pass
+            except BaseException as error:
+                remember_error(error)
+            try:
                 await self._close_stdin(handle)
+            except BaseException as error:
+                remember_error(error)
+            if handle.process.returncode is None:
                 try:
                     await asyncio.wait_for(
                         handle.process.wait(),
                         timeout=max(0.0, deadline - asyncio.get_running_loop().time()),
                     )
                 except TimeoutError:
-                    await self._terminate_process_tree(handle.process)
-            elif handle.process.returncode is None:
+                    pass
+                except BaseException as error:
+                    remember_error(error)
+
+        if handle.process.returncode is None:
+            try:
                 await self._terminate_process_tree(handle.process)
-        finally:
+            except BaseException as error:
+                remember_error(error)
+
+        try:
             await asyncio.to_thread(_terminate_psutil_processes, descendants)
+        except BaseException as error:
+            remember_error(error)
+        try:
             await self._close_job(handle)
-            handle.reader_task.cancel()
-            handle._stderr_task.cancel()
-            await asyncio.gather(
-                handle.reader_task,
-                handle._stderr_task,
+        except BaseException as error:
+            remember_error(error)
+
+        if handle.process.returncode is None:
+            try:
+                await self._kill_process_directly(handle.process)
+            except BaseException as error:
+                remember_error(error)
+
+        current_task = asyncio.current_task()
+        cleanup_tasks = tuple(
+            task for task in (handle.reader_task, handle._stderr_task) if task is not current_task
+        )
+        for task in cleanup_tasks:
+            try:
+                task.cancel()
+            except BaseException as error:
+                remember_error(error)
+        try:
+            task_results = await asyncio.gather(
+                *cleanup_tasks,
                 return_exceptions=True,
             )
+        except BaseException as error:
+            remember_error(error)
+        else:
+            for result in task_results:
+                if isinstance(result, BaseException) and not isinstance(
+                    result,
+                    asyncio.CancelledError,
+                ):
+                    remember_error(result)
+        try:
             self._fail_pending(handle, WorkerUnavailableError("worker is unavailable"))
+        except BaseException as error:
+            remember_error(error)
+        try:
             await self._remove_registry(handle)
+        except BaseException as error:
+            remember_error(error)
+            try:
+                async with self._registry_lock:
+                    if self._workers.get(handle.worker_id) is handle:
+                        del self._workers[handle.worker_id]
+                    if self._projects.get(handle.project_id) is handle:
+                        del self._projects[handle.project_id]
+            except BaseException as fallback_error:
+                remember_error(fallback_error)
+
+        if first_error is not None:
+            raise first_error
 
     async def stop_all(self) -> None:
         await await_cancellation_resistant(self._stop_all())
@@ -313,11 +435,22 @@ class WorkerSupervisor:
             handles = list(self._projects.values())
         if not handles:
             return
-        stop_tasks = [await self._ensure_stop_task(handle, graceful=True) for handle in handles]
+        stop_tasks: list[asyncio.Task[None]] = []
+        first_error: BaseException | None = None
+        for handle in handles:
+            try:
+                stop_tasks.append(await self._ensure_stop_task(handle, graceful=True))
+            except BaseException as error:
+                if first_error is None:
+                    first_error = error
+                if handle._stop_task is not None:
+                    stop_tasks.append(handle._stop_task)
         results = await asyncio.gather(*stop_tasks, return_exceptions=True)
         for result in results:
-            if isinstance(result, BaseException):
-                raise result
+            if first_error is None and isinstance(result, BaseException):
+                first_error = result
+        if first_error is not None:
+            raise first_error
 
     async def watch_once(self) -> None:
         now = self._clock()
@@ -507,6 +640,9 @@ class WorkerSupervisor:
         error: WorkerUnavailableError,
     ) -> None:
         current_task = asyncio.current_task()
+        if current_task is None:
+            raise RuntimeError("worker reader task is unavailable")
+        setup_errors: list[BaseException] = []
         async with handle._state_lock:
             if handle._stop_task is not None:
                 self._fail_pending(handle, error)
@@ -514,17 +650,15 @@ class WorkerSupervisor:
             handle._stopping = True
             handle._stopping_event.set()
             handle._stop_task = cast(asyncio.Task[None], current_task)
-        self._fail_pending(handle, error)
-        await self._remove_worker_registry(handle)
         try:
-            await self._terminate_process_tree(handle.process)
-        finally:
-            try:
-                await self._close_job(handle)
-            finally:
-                handle._stderr_task.cancel()
-                await asyncio.gather(handle._stderr_task, return_exceptions=True)
-                await self._remove_registry(handle)
+            self._fail_pending(handle, error)
+        except BaseException as pending_error:
+            setup_errors.append(pending_error)
+        await self._run_stop_task(
+            handle,
+            graceful=False,
+            setup_errors=setup_errors,
+        )
 
     async def _drain_stderr(self, handle: WorkerHandle) -> None:
         reader = handle.process.stderr
@@ -599,13 +733,29 @@ class WorkerSupervisor:
 
     @staticmethod
     def _fail_pending(handle: WorkerHandle, error: WorkerError) -> None:
-        pending = list(handle.pending.values())
-        handle.pending.clear()
-        for future in pending:
-            if not future.done():
-                future.set_exception(type(error)(str(error)))
+        first_error: BaseException | None = None
+        for message_id, future in list(handle.pending.items()):
+            try:
+                if not future.done():
+                    future.set_exception(type(error)(str(error)))
+            except BaseException as notification_error:
+                if first_error is None:
+                    first_error = notification_error
+                try:
+                    asyncio.Future.cancel(future)
+                except BaseException as fallback_error:
+                    if first_error is None:
+                        first_error = fallback_error
+            finally:
+                if handle.pending.get(message_id) is future:
+                    del handle.pending[message_id]
+        if first_error is not None:
+            raise first_error
 
     async def _remove_registry(self, handle: WorkerHandle) -> None:
+        await self._remove_registry_entries(handle)
+
+    async def _remove_registry_entries(self, handle: WorkerHandle) -> None:
         async with self._registry_lock:
             if self._workers.get(handle.worker_id) is handle:
                 del self._workers[handle.worker_id]
@@ -616,17 +766,44 @@ class WorkerSupervisor:
     async def _terminate_process_tree(process: asyncio.subprocess.Process) -> None:
         if process.returncode is not None:
             return
-        await asyncio.to_thread(_terminate_process_tree_sync, process.pid)
-        if process.returncode is not None:
-            return
+        first_error: BaseException | None = None
         try:
-            await asyncio.wait_for(process.wait(), timeout=1.0)
-        except TimeoutError:
+            await asyncio.to_thread(_terminate_process_tree_sync, process.pid)
+        except BaseException as error:
+            first_error = error
+        if process.returncode is None and first_error is None:
+            try:
+                await asyncio.wait_for(process.wait(), timeout=1.0)
+            except TimeoutError:
+                pass
+            except BaseException as error:
+                first_error = error
+        if process.returncode is None:
+            try:
+                await WorkerSupervisor._kill_process_directly(process)
+            except BaseException as error:
+                if first_error is None:
+                    first_error = error
+        if first_error is not None:
+            raise first_error
+
+    @staticmethod
+    async def _kill_process_directly(process: asyncio.subprocess.Process) -> None:
+        first_error: BaseException | None = None
+        if process.returncode is None:
             try:
                 process.kill()
             except ProcessLookupError:
                 pass
-            await process.wait()
+            except BaseException as error:
+                first_error = error
+        try:
+            await asyncio.wait_for(process.wait(), timeout=1.0)
+        except BaseException as error:
+            if first_error is None:
+                first_error = error
+        if first_error is not None:
+            raise first_error
 
     async def _remove_worker_registry(self, handle: WorkerHandle) -> None:
         async with self._registry_lock:
@@ -640,5 +817,9 @@ class WorkerSupervisor:
             return
         try:
             job.close()
-        except OSError:
-            pass
+        except BaseException as error:
+            try:
+                WindowsJob.close(job)
+            except BaseException:
+                pass
+            raise error

@@ -12,6 +12,8 @@ from agent_platform.infrastructure.database.session import Database, create_data
 from agent_platform.infrastructure.logging.configure import configure_logging
 from agent_platform.infrastructure.workers.supervisor import WorkerSupervisor
 
+_CLEANUP_FAILURE_NOTE = "Additional cleanup failure occurred."
+
 
 async def _probe_database(database: Database) -> None:
     async with database.engine.connect() as connection:
@@ -29,7 +31,10 @@ def _raise_primary_with_cleanup_failure(
         primary_error.__cause__ = cleanup_error
         primary_error.__suppress_context__ = True
     else:
-        primary_error.add_note(f"Additional cleanup failure: {type(cleanup_error).__name__}")
+        try:
+            BaseException.add_note(primary_error, _CLEANUP_FAILURE_NOTE)
+        except BaseException:
+            pass
         primary_error.__cause__ = original_cause
         primary_error.__suppress_context__ = original_suppress_context
     primary_error.__context__ = original_context

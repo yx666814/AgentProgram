@@ -1,8 +1,10 @@
 import asyncio
+import contextvars
 import ctypes
 import os
 import sys
 import tempfile
+from collections.abc import Coroutine
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -22,6 +24,7 @@ from agent_platform.infrastructure.workers.supervisor import (
     WorkerUnavailableError,
 )
 from agent_platform.infrastructure.workers.windows_job import WindowsJob, WindowsStartGate
+from agent_platform.interfaces.ipc.messages import IpcMessage
 
 if os.name == "nt":
     import agent_platform.infrastructure.workers.windows_spawn as windows_spawn_module
@@ -771,6 +774,498 @@ async def test_stop_all_waits_for_every_stop_task_before_propagating_error(
         await asyncio.gather(supervisor.stop_all(), return_exceptions=True)
         for handle in handles:
             await _terminate_process(handle.process)
+
+
+async def test_pending_failure_still_schedules_and_waits_for_every_worker_stop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    supervisor = WorkerSupervisor(
+        heartbeat_timeout=timedelta(seconds=10),
+        shutdown_timeout_seconds=0.1,
+    )
+    handles = [
+        await supervisor.start("project_pending_failure_1", "tests.fixtures.silent_worker"),
+        await supervisor.start("project_pending_failure_2", "tests.fixtures.silent_worker"),
+    ]
+    identities = tuple(
+        _capture_process_identity(f"worker {index}", handle.process.pid)
+        for index, handle in enumerate(handles, start=1)
+    )
+    pending = [asyncio.get_running_loop().create_future() for _ in handles]
+    for index, handle in enumerate(handles):
+        handle.pending[f"pending-failure-{index}"] = pending[index]
+    real_fail_pending = supervisor._fail_pending
+    injected = False
+
+    def fail_pending_once(handle: WorkerHandle, error: WorkerError) -> None:
+        nonlocal injected
+        if not injected:
+            injected = True
+            raise RuntimeError("pending cleanup failed")
+        real_fail_pending(handle, error)
+
+    monkeypatch.setattr(supervisor, "_fail_pending", fail_pending_once)
+
+    try:
+        with pytest.raises(RuntimeError, match="pending cleanup failed"):
+            await supervisor.stop_all()
+
+        assert await _wait_for_identity_exit(identities) == ()
+        assert all(handle.process.returncode is not None for handle in handles)
+        assert all(handle._stop_task is not None for handle in handles)
+        assert all(handle._stop_task.done() for handle in handles if handle._stop_task)
+        assert all(isinstance(future.exception(), WorkerUnavailableError) for future in pending)
+        assert supervisor._workers == {}
+        assert supervisor._projects == {}
+    finally:
+        for future in pending:
+            if future.done():
+                future.exception()
+        await asyncio.to_thread(_kill_process_identities, identities)
+        await asyncio.gather(supervisor.stop_all(), return_exceptions=True)
+        for future in pending:
+            if future.done():
+                future.exception()
+        for handle in handles:
+            if handle.job is not None:
+                await asyncio.to_thread(handle.job.close)
+            await _terminate_process(handle.process)
+
+
+async def test_stop_task_creation_failure_uses_fallback_and_cleans_every_worker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    supervisor = WorkerSupervisor(
+        heartbeat_timeout=timedelta(seconds=10),
+        shutdown_timeout_seconds=0.1,
+    )
+    handles = [
+        await supervisor.start("project_task_failure_1", "tests.fixtures.silent_worker"),
+        await supervisor.start("project_task_failure_2", "tests.fixtures.silent_worker"),
+    ]
+    identities = tuple(
+        _capture_process_identity(f"worker {index}", handle.process.pid)
+        for index, handle in enumerate(handles, start=1)
+    )
+    loop = asyncio.get_running_loop()
+    real_create_task = loop.create_task
+    injected = False
+
+    def fail_create_task_once(
+        coroutine: Coroutine[object, object, None],
+        *,
+        name: str | None = None,
+        context: contextvars.Context | None = None,
+    ) -> asyncio.Task[None]:
+        nonlocal injected
+        coroutine_name = getattr(
+            getattr(coroutine, "cr_code", None),
+            "co_name",
+            None,
+        )
+        if not injected and coroutine_name == "_run_stop_task":
+            injected = True
+            coroutine.close()
+            raise RuntimeError("stop task creation failed")
+        return real_create_task(coroutine, name=name, context=context)
+
+    monkeypatch.setattr(loop, "create_task", fail_create_task_once)
+
+    try:
+        with pytest.raises(RuntimeError, match="stop task creation failed"):
+            await supervisor.stop_all()
+
+        assert await _wait_for_identity_exit(identities) == ()
+        assert all(handle.process.returncode is not None for handle in handles)
+        assert all(handle._stop_task is not None for handle in handles)
+        assert all(handle._stop_task.done() for handle in handles if handle._stop_task)
+        assert all(handle.job is None or handle.job._handle is None for handle in handles)
+        assert supervisor._workers == {}
+        assert supervisor._projects == {}
+    finally:
+        await asyncio.to_thread(_kill_process_identities, identities)
+        await asyncio.gather(supervisor.stop_all(), return_exceptions=True)
+        for handle in handles:
+            if handle.job is not None:
+                await asyncio.to_thread(handle.job.close)
+            await _terminate_process(handle.process)
+
+
+async def test_cleanup_task_runtime_error_is_propagated_after_full_cleanup() -> None:
+    supervisor = WorkerSupervisor(
+        heartbeat_timeout=timedelta(seconds=10),
+        shutdown_timeout_seconds=0.1,
+    )
+    handle = await supervisor.start(
+        "project_cleanup_task_failure",
+        "tests.fixtures.silent_worker",
+    )
+    identity = _capture_process_identity("worker", handle.process.pid)
+    original_stderr_task = handle._stderr_task
+    original_stderr_task.cancel()
+    await asyncio.gather(original_stderr_task, return_exceptions=True)
+    cleanup_task_started = asyncio.Event()
+
+    async def fail_when_cancelled() -> None:
+        cleanup_task_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            raise RuntimeError("stderr task cleanup failed") from None
+
+    handle._stderr_task = asyncio.create_task(fail_when_cancelled())
+    await asyncio.wait_for(cleanup_task_started.wait(), timeout=1.0)
+
+    try:
+        with pytest.raises(RuntimeError, match="stderr task cleanup failed"):
+            await supervisor.stop_all()
+
+        assert handle.process.returncode is not None
+        assert await _wait_for_identity_exit((identity,)) == ()
+        assert handle.job is None or handle.job._handle is None
+        assert handle.reader_task.done()
+        assert handle._stderr_task.done()
+        assert supervisor._workers == {}
+        assert supervisor._projects == {}
+    finally:
+        await asyncio.to_thread(_kill_process_identities, (identity,))
+        await asyncio.gather(supervisor.stop_all(), return_exceptions=True)
+        if handle.job is not None:
+            await asyncio.to_thread(handle.job.close)
+        handle.reader_task.cancel()
+        handle._stderr_task.cancel()
+        await asyncio.gather(
+            handle.reader_task,
+            handle._stderr_task,
+            return_exceptions=True,
+        )
+        await _terminate_process(handle.process)
+
+
+async def test_pending_future_failure_does_not_strand_later_futures() -> None:
+    class FailingSetExceptionFuture(asyncio.Future[IpcMessage]):
+        def set_exception(
+            self,
+            exception: type[BaseException] | BaseException,
+            /,
+        ) -> None:
+            del exception
+            raise RuntimeError("future notification failed")
+
+    supervisor = WorkerSupervisor(
+        heartbeat_timeout=timedelta(seconds=10),
+        shutdown_timeout_seconds=0.1,
+    )
+    handle = await supervisor.start(
+        "project_future_notification_failure",
+        "tests.fixtures.silent_worker",
+    )
+    identity = _capture_process_identity("worker", handle.process.pid)
+    failing_future = FailingSetExceptionFuture()
+    later_future: asyncio.Future[IpcMessage] = asyncio.get_running_loop().create_future()
+    handle.pending["failing-future"] = failing_future
+    handle.pending["later-future"] = later_future
+
+    try:
+        with pytest.raises(RuntimeError, match="future notification failed"):
+            await supervisor.stop_all()
+
+        assert failing_future.cancelled()
+        assert isinstance(later_future.exception(), WorkerUnavailableError)
+        assert handle.pending == {}
+        assert handle.process.returncode is not None
+        assert await _wait_for_identity_exit((identity,)) == ()
+        assert handle.job is None or handle.job._handle is None
+        assert handle.reader_task.done()
+        assert handle._stderr_task.done()
+        assert supervisor._workers == {}
+        assert supervisor._projects == {}
+    finally:
+        for future in (failing_future, later_future):
+            if not future.done():
+                future.cancel()
+            if future.done() and not future.cancelled():
+                future.exception()
+        await asyncio.to_thread(_kill_process_identities, (identity,))
+        await asyncio.gather(supervisor.stop_all(), return_exceptions=True)
+        if handle.job is not None:
+            await asyncio.to_thread(handle.job.close)
+        await _terminate_process(handle.process)
+
+
+async def test_reader_pending_failure_still_completes_full_worker_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    supervisor = WorkerSupervisor(
+        heartbeat_timeout=timedelta(seconds=10),
+        shutdown_timeout_seconds=0.1,
+    )
+    handle = await supervisor.start(
+        "project_reader_pending_failure",
+        "tests.fixtures.corrupt_worker",
+    )
+    identity = _capture_process_identity("worker", handle.process.pid)
+    real_fail_pending = supervisor._fail_pending
+    fail_pending_calls = 0
+
+    def fail_pending_once(handle: WorkerHandle, error: WorkerError) -> None:
+        nonlocal fail_pending_calls
+        fail_pending_calls += 1
+        if fail_pending_calls == 1:
+            raise RuntimeError("reader pending cleanup failed")
+        real_fail_pending(handle, error)
+
+    monkeypatch.setattr(supervisor, "_fail_pending", fail_pending_once)
+    send_task = asyncio.create_task(
+        supervisor.send(
+            handle.worker_id,
+            "command",
+            {"name": "trigger_corruption"},
+            timeout_seconds=2.0,
+        )
+    )
+
+    try:
+        with pytest.raises(RuntimeError, match="reader pending cleanup failed"):
+            await asyncio.wait_for(handle.reader_task, timeout=3.0)
+
+        assert handle.process.returncode is not None
+        assert await _wait_for_identity_exit((identity,)) == ()
+        assert handle.job is None or handle.job._handle is None
+        assert handle._stderr_task.done()
+        with pytest.raises(WorkerUnavailableError, match="worker is unavailable"):
+            await send_task
+        assert handle.pending == {}
+        assert supervisor._workers == {}
+        assert supervisor._projects == {}
+    finally:
+        if not send_task.done():
+            send_task.cancel()
+        await asyncio.gather(send_task, return_exceptions=True)
+        await asyncio.to_thread(_kill_process_identities, (identity,))
+        if handle.job is not None:
+            await asyncio.to_thread(handle.job.close)
+        handle._stderr_task.cancel()
+        await asyncio.gather(handle._stderr_task, return_exceptions=True)
+        await _terminate_process(handle.process)
+
+
+async def test_stop_all_capture_failure_still_completes_full_worker_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    supervisor = WorkerSupervisor(
+        heartbeat_timeout=timedelta(seconds=10),
+        shutdown_timeout_seconds=0.1,
+    )
+    project_id = f"capture_failure_{uuid4().hex}"
+    pid_path = _child_pid_path(project_id)
+    pid_path.unlink(missing_ok=True)
+    handle = await supervisor.start(project_id, "tests.fixtures.child_worker")
+    child_pid = await _wait_for_child_pid(pid_path)
+    identities = (
+        _capture_process_identity("worker", handle.process.pid),
+        _capture_process_identity("worker child", child_pid),
+    )
+    pending = asyncio.get_running_loop().create_future()
+    handle.pending["capture-failure-pending"] = pending
+
+    def fail_capture(_: int) -> list[object]:
+        raise RuntimeError("descendant capture failed")
+
+    monkeypatch.setattr(supervisor_module, "_capture_descendants_sync", fail_capture)
+
+    try:
+        with pytest.raises(RuntimeError, match="descendant capture failed"):
+            await supervisor.stop_all()
+
+        assert handle.process.returncode is not None
+        assert await _wait_for_identity_exit(identities) == ()
+        assert handle.job is None or handle.job._handle is None
+        assert handle.reader_task.done()
+        assert handle._stderr_task.done()
+        assert isinstance(pending.exception(), WorkerUnavailableError)
+        assert handle.pending == {}
+        assert supervisor._workers == {}
+        assert supervisor._projects == {}
+    finally:
+        if pending.done():
+            pending.exception()
+        await asyncio.to_thread(_kill_process_identities, identities)
+        if handle.job is not None:
+            await asyncio.to_thread(handle.job.close)
+        handle.reader_task.cancel()
+        handle._stderr_task.cancel()
+        await asyncio.gather(
+            handle.reader_task,
+            handle._stderr_task,
+            return_exceptions=True,
+        )
+        await _terminate_process(handle.process)
+        pid_path.unlink(missing_ok=True)
+
+
+async def test_unexpected_shutdown_request_failure_still_completes_full_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    supervisor = WorkerSupervisor(
+        heartbeat_timeout=timedelta(seconds=10),
+        shutdown_timeout_seconds=0.1,
+    )
+    project_id = f"request_failure_{uuid4().hex}"
+    pid_path = _child_pid_path(project_id)
+    pid_path.unlink(missing_ok=True)
+    handle = await supervisor.start(project_id, "tests.fixtures.child_worker")
+    child_pid = await _wait_for_child_pid(pid_path)
+    identities = (
+        _capture_process_identity("worker", handle.process.pid),
+        _capture_process_identity("worker child", child_pid),
+    )
+    pending = asyncio.get_running_loop().create_future()
+    handle.pending["request-failure-pending"] = pending
+    detached_job = handle.job
+    handle.job = None
+
+    async def fail_shutdown_request(*_: object, **__: object) -> None:
+        raise RuntimeError("shutdown request failed")
+
+    monkeypatch.setattr(supervisor, "_request", fail_shutdown_request)
+
+    try:
+        with pytest.raises(RuntimeError, match="shutdown request failed"):
+            await supervisor.stop_all()
+
+        assert handle.process.returncode is not None
+        assert await _wait_for_identity_exit(identities) == ()
+        assert handle.reader_task.done()
+        assert handle._stderr_task.done()
+        assert isinstance(pending.exception(), WorkerUnavailableError)
+        assert handle.pending == {}
+        assert supervisor._workers == {}
+        assert supervisor._projects == {}
+    finally:
+        if pending.done():
+            pending.exception()
+        await asyncio.to_thread(_kill_process_identities, identities)
+        if detached_job is not None:
+            await asyncio.to_thread(detached_job.close)
+        handle.reader_task.cancel()
+        handle._stderr_task.cancel()
+        await asyncio.gather(
+            handle.reader_task,
+            handle._stderr_task,
+            return_exceptions=True,
+        )
+        await _terminate_process(handle.process)
+        pid_path.unlink(missing_ok=True)
+
+
+async def test_process_tree_failure_uses_direct_process_kill_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    supervisor = WorkerSupervisor(heartbeat_timeout=timedelta(seconds=10))
+    handle = await supervisor.start(
+        "project_tree_fallback",
+        "tests.fixtures.silent_worker",
+    )
+
+    def fail_tree_termination(_: int) -> None:
+        raise RuntimeError("psutil tree termination failed")
+
+    monkeypatch.setattr(
+        supervisor_module,
+        "_terminate_process_tree_sync",
+        fail_tree_termination,
+    )
+
+    try:
+        with pytest.raises(RuntimeError, match="psutil tree termination failed"):
+            await supervisor._terminate_process_tree(handle.process)
+
+        assert handle.process.returncode is not None
+    finally:
+        await asyncio.gather(supervisor.stop_all(), return_exceptions=True)
+        if handle.job is not None:
+            await asyncio.to_thread(handle.job.close)
+        await _terminate_process(handle.process)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows Job close failure only")
+async def test_job_close_oserror_is_propagated_after_retry_closes_handle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    supervisor = WorkerSupervisor(
+        heartbeat_timeout=timedelta(seconds=10),
+        shutdown_timeout_seconds=0.1,
+    )
+    handle = await supervisor.start(
+        "project_job_close_failure",
+        "tests.fixtures.silent_worker",
+    )
+    job = handle.job
+    assert job is not None
+    real_close = job.close
+    close_attempted = False
+
+    def fail_job_close() -> None:
+        nonlocal close_attempted
+        close_attempted = True
+        raise OSError("job close failed")
+
+    monkeypatch.setattr(job, "close", fail_job_close)
+
+    try:
+        with pytest.raises(OSError, match="job close failed"):
+            await supervisor.stop_all()
+
+        assert close_attempted is True
+        assert job._handle is None
+        assert handle.process.returncode is not None
+        assert handle.reader_task.done()
+        assert handle._stderr_task.done()
+        assert supervisor._workers == {}
+        assert supervisor._projects == {}
+    finally:
+        await asyncio.to_thread(real_close)
+        await _terminate_process(handle.process)
+
+
+async def test_registry_removal_failure_uses_locked_direct_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    supervisor = WorkerSupervisor(
+        heartbeat_timeout=timedelta(seconds=10),
+        shutdown_timeout_seconds=0.1,
+    )
+    handle = await supervisor.start(
+        "project_registry_failure",
+        "tests.fixtures.silent_worker",
+    )
+
+    async def fail_registry_removal(_: WorkerHandle) -> None:
+        raise RuntimeError("registry removal failed")
+
+    async def fail_registry_helper(_: WorkerHandle) -> None:
+        raise RuntimeError("registry helper failed")
+
+    monkeypatch.setattr(supervisor, "_remove_registry", fail_registry_removal)
+    monkeypatch.setattr(supervisor, "_remove_registry_entries", fail_registry_helper)
+
+    try:
+        with pytest.raises(RuntimeError, match="registry removal failed"):
+            await supervisor.stop_all()
+
+        assert handle.process.returncode is not None
+        assert handle.reader_task.done()
+        assert handle._stderr_task.done()
+        assert supervisor._workers == {}
+        assert supervisor._projects == {}
+    finally:
+        async with supervisor._registry_lock:
+            supervisor._workers.clear()
+            supervisor._projects.clear()
+        if handle.job is not None:
+            await asyncio.to_thread(handle.job.close)
+        await _terminate_process(handle.process)
 
 
 async def test_broken_worker_stdin_raises_sanitized_unavailable_and_cleans_up() -> None:

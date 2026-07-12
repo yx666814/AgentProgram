@@ -441,7 +441,8 @@ async def test_cleanup_failure_preserves_primary_explicit_cause_and_context(
     assert raised.value is primary_error
     assert raised.value.__cause__ is original_cause
     assert raised.value.__context__ is original_context
-    assert raised.value.__notes__ == ["Additional cleanup failure: ValueError"]
+    assert raised.value.__notes__ == ["Additional cleanup failure occurred."]
+    assert "ValueError" not in raised.value.__notes__[0]
     assert "cleanup-secret" not in raised.value.__notes__[0]
 
 
@@ -484,5 +485,56 @@ async def test_cleanup_failure_preserves_primary_implicit_context(
     assert raised.value.__cause__ is None
     assert raised.value.__context__ is original_context
     assert raised.value.__suppress_context__ is False
-    assert raised.value.__notes__ == ["Additional cleanup failure: ValueError"]
+    assert raised.value.__notes__ == ["Additional cleanup failure occurred."]
+    assert "ValueError" not in raised.value.__notes__[0]
     assert "cleanup-secret" not in raised.value.__notes__[0]
+
+
+def test_cleanup_note_bypasses_overridden_add_note() -> None:
+    class OverridingPrimaryError(RuntimeError):
+        def add_note(self, note: str) -> None:
+            del note
+            raise LookupError("note-secret")
+
+    original_cause = OSError("original cause")
+    original_context = ValueError("original context")
+    primary_error = OverridingPrimaryError("primary failure")
+    primary_error.__cause__ = original_cause
+    primary_error.__context__ = original_context
+    primary_error.__suppress_context__ = True
+
+    with pytest.raises(OverridingPrimaryError, match="primary failure") as raised:
+        lifespan_module._raise_primary_with_cleanup_failure(
+            primary_error,
+            RuntimeError("cleanup-secret"),
+        )
+
+    assert raised.value is primary_error
+    assert raised.value.__cause__ is original_cause
+    assert raised.value.__context__ is original_context
+    assert raised.value.__suppress_context__ is True
+    assert raised.value.__notes__ == ["Additional cleanup failure occurred."]
+    assert "note-secret" not in raised.value.__notes__[0]
+    assert "cleanup-secret" not in raised.value.__notes__[0]
+
+
+def test_cleanup_note_failure_does_not_replace_primary() -> None:
+    original_cause = OSError("original cause")
+    original_context = ValueError("original context")
+    primary_error = RuntimeError("primary failure")
+    primary_error.__cause__ = original_cause
+    primary_error.__context__ = original_context
+    primary_error.__suppress_context__ = True
+    primary_error.__dict__["__notes__"] = "invalid notes"
+
+    with pytest.raises(RuntimeError, match="primary failure") as raised:
+        lifespan_module._raise_primary_with_cleanup_failure(
+            primary_error,
+            LookupError("cleanup-secret"),
+        )
+
+    assert raised.value is primary_error
+    assert raised.value.__cause__ is original_cause
+    assert raised.value.__context__ is original_context
+    assert raised.value.__suppress_context__ is True
+    assert raised.value.__dict__["__notes__"] == "invalid notes"
