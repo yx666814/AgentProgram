@@ -3,7 +3,6 @@ import ctypes
 import os
 import sys
 import tempfile
-import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -776,34 +775,6 @@ async def test_start_failure_after_spawn_reaps_process(
             await _terminate_process(process)
 
 
-@pytest.mark.skipif(os.name != "nt", reason="Windows Job startup race only")
-async def test_windows_supervisor_never_uses_post_spawn_job_assignment(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    project_id = f"no_post_assign_{uuid4().hex}"
-    path = _import_marker_path(project_id)
-    path.unlink(missing_ok=True)
-
-    def forbidden_assign_process(self: WindowsJob, pid: int) -> None:
-        del self, pid
-        raise AssertionError("post-spawn Job assignment is forbidden")
-
-    monkeypatch.setattr(WindowsJob, "assign_process", forbidden_assign_process)
-    supervisor = WorkerSupervisor(heartbeat_timeout=timedelta(seconds=10))
-    handle = None
-
-    try:
-        handle = await supervisor.start(project_id, "tests.fixtures.import_marker_worker")
-        await asyncio.wait_for(handle.reader_task, timeout=2.0)
-
-        assert path.exists()
-    finally:
-        await supervisor.stop_all()
-        if handle is not None:
-            await _terminate_process(handle.process)
-        path.unlink(missing_ok=True)
-
-
 @pytest.mark.skipif(os.name != "nt", reason="Windows Job containment only")
 async def test_immediate_child_is_in_exact_job_and_dies_when_job_closes() -> None:
     supervisor = WorkerSupervisor(
@@ -836,19 +807,7 @@ async def test_immediate_child_is_in_exact_job_and_dies_when_job_closes() -> Non
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows atomic Job startup only")
-async def test_real_venv_launcher_chain_is_atomically_contained_by_job(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    real_assign_process = WindowsJob.assign_process
-    assign_calls = 0
-
-    def delayed_assign_process(self: WindowsJob, pid: int) -> None:
-        nonlocal assign_calls
-        assign_calls += 1
-        time.sleep(0.5)
-        real_assign_process(self, pid)
-
-    monkeypatch.setattr(WindowsJob, "assign_process", delayed_assign_process)
+async def test_real_venv_launcher_chain_is_atomically_contained_by_job() -> None:
     supervisor = WorkerSupervisor(
         heartbeat_timeout=timedelta(seconds=10),
         shutdown_timeout_seconds=0.1,
@@ -871,7 +830,6 @@ async def test_real_venv_launcher_chain_is_atomically_contained_by_job(
             _capture_process_identity("immediate child interpreter", child_interpreter_pid),
         )
         assert len({identity.pid for identity in identities}) == 4
-        assert assign_calls == 0
         assert handle.process.stdin is not None
         assert not handle.process.stdin.is_closing()
         assert handle.job is not None

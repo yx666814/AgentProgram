@@ -12,8 +12,6 @@ _DUPLICATE_SAME_ACCESS = 0x00000002
 _EVENT_MODIFY_STATE = 0x0002
 _INFINITE = 0xFFFFFFFF
 _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-_PROCESS_TERMINATE = 0x0001
-_PROCESS_SET_QUOTA = 0x0100
 _SYNCHRONIZE = 0x00100000
 _WAIT_OBJECT_0 = 0
 _WAIT_TIMEOUT = 258
@@ -90,8 +88,6 @@ def _load_kernel32() -> Any:
     kernel32.DuplicateHandle.restype = ctypes.c_int
     kernel32.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
     kernel32.OpenProcess.restype = ctypes.c_void_p
-    kernel32.AssignProcessToJobObject.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-    kernel32.AssignProcessToJobObject.restype = ctypes.c_int
     kernel32.IsProcessInJob.argtypes = [
         ctypes.c_void_p,
         ctypes.c_void_p,
@@ -173,35 +169,6 @@ class WindowsJob:
         except BaseException:
             _close_raw_handle(kernel32, job_handle)
             raise
-
-    @classmethod
-    def create_for_process(cls, pid: int) -> Self:
-        job = cls.create()
-        try:
-            job.assign_process(pid)
-            return job
-        except BaseException:
-            job.close()
-            raise
-
-    def assign_process(self, pid: int) -> None:
-        with _WINDOWS_HANDLE_LOCK:
-            job_handle = self._handle
-            if job_handle is None:
-                raise OSError("Windows Job Object is closed")
-            process_handle = self._kernel32.OpenProcess(
-                _PROCESS_TERMINATE | _PROCESS_SET_QUOTA,
-                False,
-                pid,
-            )
-            if not process_handle:
-                raise _last_windows_error()
-            process_handle = int(process_handle)
-            try:
-                if not self._kernel32.AssignProcessToJobObject(job_handle, process_handle):
-                    raise _last_windows_error()
-            finally:
-                _close_raw_handle(self._kernel32, process_handle)
 
     def _duplicate_handle(self) -> _DuplicatedJobHandle:
         with _WINDOWS_HANDLE_LOCK:
