@@ -1,4 +1,5 @@
 import argparse
+import os
 import subprocess
 import sys
 
@@ -16,3 +17,5 @@ if __name__ == "__main__":
         stderr=subprocess.DEVNULL,
     )
     child_pid_path(args.project_id).write_text(str(child.pid), encoding="ascii")
+    while os.read(sys.stdin.buffer.fileno(), 65536):
+        pass

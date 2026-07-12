@@ -1,5 +1,7 @@
 import asyncio
+import ctypes
 import os
+import subprocess
 import sys
 import tempfile
 import time
@@ -695,45 +697,109 @@ async def test_start_failure_after_spawn_reaps_process(
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows Job startup race only")
-async def test_immediate_child_cannot_escape_before_job_assignment(
+async def test_target_cannot_run_before_job_assignment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    real_create_for_process = WindowsJob.create_for_process
+    real_assign_process = WindowsJob.assign_process
+    project_id = f"delayed_assign_{uuid4().hex}"
+    path = _import_marker_path(project_id)
+    path.unlink(missing_ok=True)
 
-    def delayed_create_for_process(cls: type[WindowsJob], pid: int) -> WindowsJob:
-        del cls
+    def delayed_assign_process(self: WindowsJob, pid: int) -> None:
         time.sleep(0.5)
-        return real_create_for_process(pid)
+        assert not path.exists()
+        real_assign_process(self, pid)
 
-    monkeypatch.setattr(
-        WindowsJob,
-        "create_for_process",
-        classmethod(delayed_create_for_process),
-    )
+    monkeypatch.setattr(WindowsJob, "assign_process", delayed_assign_process)
     supervisor = WorkerSupervisor(heartbeat_timeout=timedelta(seconds=10))
-    project_id = f"immediate_tree_{uuid4().hex}"
-    pid_path = _child_pid_path(project_id)
-    pid_path.unlink(missing_ok=True)
     handle = None
-    child_pid: int | None = None
 
     try:
-        try:
-            handle = await supervisor.start(project_id, "tests.fixtures.immediate_child_worker")
-        except WorkerUnavailableError:
-            pass
-        child_pid = await _wait_for_child_pid(pid_path)
-        if handle is not None:
-            await asyncio.wait_for(handle.reader_task, timeout=2.0)
+        handle = await supervisor.start(project_id, "tests.fixtures.import_marker_worker")
+        await asyncio.wait_for(handle.reader_task, timeout=2.0)
 
-        await _wait_for_pid_exit(child_pid)
+        assert path.exists()
     finally:
         await supervisor.stop_all()
         if handle is not None:
             await _terminate_process(handle.process)
+        path.unlink(missing_ok=True)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows Job containment only")
+async def test_immediate_child_is_in_exact_job_and_dies_when_job_closes() -> None:
+    supervisor = WorkerSupervisor(
+        heartbeat_timeout=timedelta(seconds=10),
+        shutdown_timeout_seconds=0.1,
+    )
+    project_id = f"exact_job_{uuid4().hex}"
+    pid_path = _child_pid_path(project_id)
+    pid_path.unlink(missing_ok=True)
+    handle = await supervisor.start(project_id, "tests.fixtures.immediate_child_worker")
+    child_pid: int | None = None
+
+    try:
+        child_pid = await _wait_for_child_pid(pid_path)
+        assert handle.job is not None
+        assert handle.job.contains_process(handle.process.pid)
+        assert handle.job.contains_process(child_pid)
+
+        await asyncio.to_thread(handle.job.close)
+
+        await _wait_for_pid_exit(child_pid)
+        await asyncio.wait_for(handle.process.wait(), timeout=2.0)
+        assert handle.job._handle is None
+    finally:
+        await supervisor.stop_all()
+        await _terminate_process(handle.process)
         if child_pid is not None:
             await asyncio.to_thread(_kill_pid_if_alive, child_pid)
         pid_path.unlink(missing_ok=True)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows Job containment only")
+async def test_breakaway_spawn_denial_is_sanitized_and_closes_start_resources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spawn_options: list[dict[str, object]] = []
+    jobs: list[WindowsJob] = []
+    gates: list[WindowsStartGate] = []
+    real_job_create = WindowsJob.create
+    real_gate_create = WindowsStartGate.create
+
+    async def denied_spawn(*args: object, **kwargs: object) -> asyncio.subprocess.Process:
+        del args
+        spawn_options.append(kwargs)
+        raise ctypes.WinError(5)
+
+    def recording_job_create(cls: type[WindowsJob]) -> WindowsJob:
+        del cls
+        job = real_job_create()
+        jobs.append(job)
+        return job
+
+    def recording_gate_create(cls: type[WindowsStartGate]) -> WindowsStartGate:
+        del cls
+        gate = real_gate_create()
+        gates.append(gate)
+        return gate
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", denied_spawn)
+    monkeypatch.setattr(WindowsJob, "create", classmethod(recording_job_create))
+    monkeypatch.setattr(WindowsStartGate, "create", classmethod(recording_gate_create))
+    supervisor = WorkerSupervisor(heartbeat_timeout=timedelta(seconds=10))
+
+    with pytest.raises(WorkerUnavailableError, match="could not be started") as raised:
+        await supervisor.start("project_breakaway_denied")
+
+    assert str(raised.value) == "worker could not be started"
+    assert len(spawn_options) == 1
+    assert spawn_options[0].get("creationflags") == subprocess.CREATE_BREAKAWAY_FROM_JOB
+    assert len(jobs) == 1
+    assert jobs[0]._handle is None
+    assert len(gates) == 1
+    assert gates[0]._handle is None
+    assert gates[0]._ready_handle is None
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows start gate only")

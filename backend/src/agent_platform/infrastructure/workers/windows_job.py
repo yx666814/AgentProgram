@@ -7,8 +7,10 @@ from typing import Any, Self
 from uuid import uuid4
 
 _ERROR_ALREADY_EXISTS = 183
+_ERROR_INVALID_PARAMETER = 87
 _EVENT_MODIFY_STATE = 0x0002
 _INFINITE = 0xFFFFFFFF
+_PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 _PROCESS_TERMINATE = 0x0001
 _PROCESS_SET_QUOTA = 0x0100
 _SYNCHRONIZE = 0x00100000
@@ -77,6 +79,12 @@ def _load_kernel32() -> Any:
     kernel32.OpenProcess.restype = ctypes.c_void_p
     kernel32.AssignProcessToJobObject.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
     kernel32.AssignProcessToJobObject.restype = ctypes.c_int
+    kernel32.IsProcessInJob.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_int),
+    ]
+    kernel32.IsProcessInJob.restype = ctypes.c_int
     kernel32.CreateEventW.argtypes = [
         ctypes.c_void_p,
         ctypes.c_int,
@@ -159,6 +167,36 @@ class WindowsJob:
             try:
                 if not self._kernel32.AssignProcessToJobObject(job_handle, process_handle):
                     raise _last_windows_error()
+            finally:
+                _close_raw_handle(self._kernel32, process_handle)
+
+    def contains_process(self, pid: int) -> bool:
+        """Return whether a live process belongs to this exact Job Object."""
+
+        with _WINDOWS_HANDLE_LOCK:
+            job_handle = self._handle
+            if job_handle is None:
+                raise OSError("Windows Job Object is closed")
+            ctypes.set_last_error(0)
+            process_handle = self._kernel32.OpenProcess(
+                _PROCESS_QUERY_LIMITED_INFORMATION,
+                False,
+                pid,
+            )
+            if not process_handle:
+                if ctypes.get_last_error() == _ERROR_INVALID_PARAMETER:
+                    return False
+                raise OSError("Windows process membership could not be queried") from None
+            process_handle = int(process_handle)
+            try:
+                is_member = ctypes.c_int()
+                if not self._kernel32.IsProcessInJob(
+                    process_handle,
+                    job_handle,
+                    ctypes.byref(is_member),
+                ):
+                    raise OSError("Windows process membership could not be queried") from None
+                return bool(is_member.value)
             finally:
                 _close_raw_handle(self._kernel32, process_handle)
 

@@ -1,6 +1,7 @@
 import asyncio
 import gc
 import os
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -123,6 +124,7 @@ def test_windows_gate_and_job_handles_close_idempotently_without_leak() -> None:
         gate.close()
         gate.close()
         job = WindowsJob.create()
+        assert not job.contains_process(os.getpid())
         job.close()
         job.close()
         closed_resources.extend((gate, job))
@@ -130,3 +132,40 @@ def test_windows_gate_and_job_handles_close_idempotently_without_leak() -> None:
     gc.collect()
     assert process.num_handles() <= baseline
     assert len(closed_resources) == 40
+
+
+async def test_windows_job_reports_exact_assigned_process_membership() -> None:
+    job = WindowsJob.create()
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-c",
+        "import time; time.sleep(60)",
+        creationflags=subprocess.CREATE_BREAKAWAY_FROM_JOB,
+    )
+
+    try:
+        job.assign_process(process.pid)
+
+        assert job.contains_process(process.pid)
+    finally:
+        job.close()
+        await asyncio.wait_for(process.wait(), timeout=5)
+
+
+def test_windows_job_reports_missing_process_as_not_contained() -> None:
+    job = WindowsJob.create()
+
+    try:
+        assert not job.contains_process(0xFFFFFFFE)
+    finally:
+        job.close()
+
+
+def test_windows_job_rejects_membership_query_after_close_without_os_details() -> None:
+    job = WindowsJob.create()
+    job.close()
+
+    with pytest.raises(OSError) as raised:
+        job.contains_process(os.getpid())
+
+    assert str(raised.value) == "Windows Job Object is closed"

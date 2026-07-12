@@ -163,11 +163,18 @@ class WorkerSupervisor:
                         worker_module,
                         *target_arguments,
                     )
+                spawn_options: dict[str, Any] = {
+                    "stdin": asyncio.subprocess.PIPE,
+                    "stdout": asyncio.subprocess.PIPE,
+                    "stderr": asyncio.subprocess.PIPE,
+                }
+                if os.name == "nt":
+                    from subprocess import CREATE_BREAKAWAY_FROM_JOB
+
+                    spawn_options["creationflags"] = CREATE_BREAKAWAY_FROM_JOB
                 process = await asyncio.create_subprocess_exec(
                     *process_arguments,
-                    stdin=asyncio.subprocess.PIPE,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
+                    **spawn_options,
                 )
                 if job is not None and start_gate is not None:
                     job.assign_process(process.pid)
