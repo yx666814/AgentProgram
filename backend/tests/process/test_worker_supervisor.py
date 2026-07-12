@@ -2,12 +2,15 @@ import asyncio
 import contextvars
 import ctypes
 import os
+import signal
 import sys
 import tempfile
-from collections.abc import Coroutine
+import time
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any, cast
 from uuid import uuid4
 
 import psutil  # type: ignore[import-untyped]
@@ -55,6 +58,23 @@ class _SteppingClock:
     def __call__(self) -> datetime:
         self._now += timedelta(seconds=1)
         return self._now
+
+
+def test_secondary_cleanup_note_failure_does_not_replace_primary() -> None:
+    primary_error = RuntimeError("primary failure")
+    original_cause = OSError("original cause")
+    original_context = ValueError("original context")
+    primary_error.__cause__ = original_cause
+    primary_error.__context__ = original_context
+    primary_error.__suppress_context__ = True
+    primary_error.__dict__["__notes__"] = "invalid notes"
+
+    supervisor_module._add_secondary_cleanup_note(primary_error)
+
+    assert primary_error.__cause__ is original_cause
+    assert primary_error.__context__ is original_context
+    assert primary_error.__suppress_context__ is True
+    assert primary_error.__dict__["__notes__"] == "invalid notes"
 
 
 async def _terminate_process(process: asyncio.subprocess.Process) -> None:
@@ -127,7 +147,7 @@ def _capture_process_identity(role: str, pid: int) -> _ProcessIdentity:
 def _identity_is_alive(identity: _ProcessIdentity) -> bool:
     try:
         process = psutil.Process(identity.pid)
-        return process.create_time() == identity.create_time and process.is_running()
+        return bool(process.create_time() == identity.create_time and process.is_running())
     except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
         return False
 
@@ -192,13 +212,17 @@ async def test_supervisor_passes_canonical_worker_id_to_process(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     spawn_arguments: list[tuple[object, ...]] = []
+    spawn_keyword_arguments: list[dict[str, object]] = []
     real_spawn = windows_spawn_module.create_windows_job_subprocess_exec
 
     async def recording_spawn(
         job: WindowsJob,
         *args: str,
+        **kwargs: object,
     ) -> asyncio.subprocess.Process:
         spawn_arguments.append(args)
+        spawn_keyword_arguments.append(kwargs)
+        assert kwargs == {}
         return await real_spawn(job, *args)
 
     monkeypatch.setattr(
@@ -219,9 +243,78 @@ async def test_supervisor_passes_canonical_worker_id_to_process(
         assert spawn_arguments[0][target_index] == "agent_platform.workers.main"
         worker_id_index = spawn_arguments[0].index("--worker-id") + 1
         assert spawn_arguments[0][worker_id_index] == handle.worker_id
+        assert spawn_keyword_arguments == [{}]
+        assert handle.process_group_id is None
         assert (await supervisor.ping(handle.worker_id)).payload == {"status": "ok"}
     finally:
         await supervisor.stop_all()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process group spawn only")
+async def test_posix_spawn_starts_a_new_process_group() -> None:
+    supervisor = WorkerSupervisor(heartbeat_timeout=timedelta(seconds=10))
+    handle = await supervisor.start(
+        "project_posix_process_group",
+        "tests.fixtures.silent_worker",
+    )
+
+    try:
+        assert handle.process_group_id == handle.process.pid
+        getpgrp = cast(Callable[[], int], os.getpgrp)  # type: ignore[attr-defined]
+        assert handle.process_group_id != getpgrp()
+    finally:
+        await supervisor.stop_all()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process group cleanup only")
+async def test_posix_group_cleanup_never_signals_backend_group(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    signalled: list[tuple[int, int]] = []
+
+    def unexpected_killpg(process_group_id: int, signal_number: int) -> None:
+        signalled.append((process_group_id, signal_number))
+
+    monkeypatch.setattr(os, "killpg", unexpected_killpg)
+    current_group = cast(Callable[[], int], os.getpgrp)()  # type: ignore[attr-defined]
+
+    with pytest.raises(OSError, match="unsafe worker process group"):
+        await WorkerSupervisor._terminate_posix_process_group(
+            current_group,
+            current_group,
+        )
+
+    assert signalled == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process group cleanup only")
+async def test_posix_group_cleanup_escalates_from_term_to_kill(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    process_group_id = 12345
+    signalled: list[int] = []
+    killed = False
+    sigkill = cast(int, signal.SIGKILL)  # type: ignore[attr-defined]
+
+    def controlled_killpg(actual_group_id: int, signal_number: int) -> None:
+        nonlocal killed
+        assert actual_group_id == process_group_id
+        signalled.append(signal_number)
+        if signal_number == sigkill:
+            killed = True
+        elif signal_number == 0 and killed:
+            raise ProcessLookupError
+
+    monkeypatch.setattr(os, "killpg", controlled_killpg)
+    monkeypatch.setattr(os, "getpgrp", lambda: process_group_id + 1)
+    monkeypatch.setattr(supervisor_module, "_POSIX_GROUP_TERM_TIMEOUT_SECONDS", 0.0)
+
+    await WorkerSupervisor._terminate_posix_process_group(
+        process_group_id,
+        process_group_id,
+    )
+
+    assert signalled == [signal.SIGTERM, 0, sigkill, 0]
 
 
 async def test_watch_once_terminates_worker_after_heartbeat_timeout() -> None:
@@ -299,6 +392,263 @@ async def test_send_timeout_removes_pending_and_ignores_late_response() -> None:
         assert handle.pending == {}
     finally:
         await supervisor.stop_all()
+
+
+async def test_shutdown_deadline_covers_write_lock_acquisition() -> None:
+    supervisor = WorkerSupervisor(
+        heartbeat_timeout=timedelta(seconds=10),
+        shutdown_timeout_seconds=0.1,
+    )
+    handle: WorkerHandle | None = None
+    stop_task: asyncio.Task[None] | None = None
+
+    try:
+        handle = await supervisor.start(
+            "project_shutdown_write_lock_deadline",
+            "tests.fixtures.silent_worker",
+        )
+        await handle._write_lock.acquire()
+        stop_task = asyncio.create_task(supervisor.stop(handle.worker_id))
+
+        done, _ = await asyncio.wait({stop_task}, timeout=1.5)
+
+        assert stop_task in done
+        await stop_task
+        assert handle.process.returncode is not None
+        assert supervisor.get(handle.worker_id) is None
+    finally:
+        if handle is not None and handle._write_lock.locked():
+            handle._write_lock.release()
+        if stop_task is not None:
+            await asyncio.gather(stop_task, return_exceptions=True)
+        await asyncio.gather(supervisor.stop_all(), return_exceptions=True)
+        if handle is not None:
+            await _terminate_process(handle.process)
+
+
+async def test_shutdown_deadline_cancels_and_joins_backpressured_drain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    supervisor = WorkerSupervisor(
+        heartbeat_timeout=timedelta(seconds=10),
+        shutdown_timeout_seconds=0.1,
+    )
+    handle: WorkerHandle | None = None
+    stop_task: asyncio.Task[None] | None = None
+    allow_drain = asyncio.Event()
+    drain_started = asyncio.Event()
+    drain_cancelled = asyncio.Event()
+    drain_converged = asyncio.Event()
+
+    try:
+        handle = await supervisor.start(
+            "project_shutdown_drain_deadline",
+            "tests.fixtures.silent_worker",
+        )
+        writer = handle.process.stdin
+        assert writer is not None
+
+        async def backpressured_drain() -> None:
+            drain_started.set()
+            try:
+                await allow_drain.wait()
+            except asyncio.CancelledError:
+                drain_cancelled.set()
+                raise
+            finally:
+                drain_converged.set()
+
+        monkeypatch.setattr(writer, "drain", backpressured_drain)
+        stop_task = asyncio.create_task(supervisor.stop(handle.worker_id))
+        await asyncio.wait_for(drain_started.wait(), timeout=1.0)
+
+        done, _ = await asyncio.wait({stop_task}, timeout=1.5)
+
+        assert stop_task in done
+        await stop_task
+        assert drain_cancelled.is_set()
+        assert drain_converged.is_set()
+        assert handle._write_lock.locked() is False
+        assert handle.process.returncode is not None
+        assert supervisor.get(handle.worker_id) is None
+    finally:
+        allow_drain.set()
+        if stop_task is not None:
+            await asyncio.gather(stop_task, return_exceptions=True)
+        await asyncio.gather(supervisor.stop_all(), return_exceptions=True)
+        if handle is not None:
+            await _terminate_process(handle.process)
+
+
+async def test_stdin_close_waits_only_after_worker_termination(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    supervisor = WorkerSupervisor(
+        heartbeat_timeout=timedelta(seconds=10),
+        shutdown_timeout_seconds=0.1,
+    )
+    handle: WorkerHandle | None = None
+    waited_while_alive = asyncio.Event()
+    wait_cancelled = asyncio.Event()
+    waited_after_exit = asyncio.Event()
+
+    try:
+        handle = await supervisor.start(
+            "project_stdin_close_order",
+            "tests.fixtures.silent_worker",
+        )
+        writer = handle.process.stdin
+        assert writer is not None
+
+        async def controlled_wait_closed() -> None:
+            if handle is not None and handle.process.returncode is None:
+                waited_while_alive.set()
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    wait_cancelled.set()
+                    raise
+            waited_after_exit.set()
+
+        monkeypatch.setattr(writer, "wait_closed", controlled_wait_closed)
+
+        await supervisor.stop(handle.worker_id)
+
+        assert waited_while_alive.is_set() is False
+        assert wait_cancelled.is_set() is False
+        assert waited_after_exit.is_set()
+        assert handle.process.returncode is not None
+    finally:
+        await asyncio.gather(supervisor.stop_all(), return_exceptions=True)
+        if handle is not None:
+            await _terminate_process(handle.process)
+
+
+async def test_external_cancellation_converges_drain_and_remains_cancelled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    supervisor = WorkerSupervisor(heartbeat_timeout=timedelta(seconds=10))
+    handle: WorkerHandle | None = None
+    send_task: asyncio.Task[IpcMessage] | None = None
+    allow_drain = asyncio.Event()
+    drain_started = asyncio.Event()
+    drain_cancelled = asyncio.Event()
+    drain_converged = asyncio.Event()
+
+    try:
+        handle = await supervisor.start(
+            "project_cancelled_drain",
+            "tests.fixtures.silent_worker",
+        )
+        writer = handle.process.stdin
+        assert writer is not None
+
+        async def backpressured_drain() -> None:
+            drain_started.set()
+            try:
+                await allow_drain.wait()
+            except asyncio.CancelledError:
+                drain_cancelled.set()
+                raise
+            finally:
+                drain_converged.set()
+
+        monkeypatch.setattr(writer, "drain", backpressured_drain)
+        send_task = asyncio.create_task(
+            supervisor.send(
+                handle.worker_id,
+                "command",
+                {"name": "cancelled_drain"},
+                timeout_seconds=5.0,
+            )
+        )
+        await asyncio.wait_for(drain_started.wait(), timeout=1.0)
+        send_task.cancel()
+
+        done, _ = await asyncio.wait({send_task}, timeout=0.5)
+
+        assert send_task in done
+        with pytest.raises(asyncio.CancelledError):
+            await send_task
+        assert drain_cancelled.is_set()
+        assert drain_converged.is_set()
+        assert handle._write_lock.locked() is False
+        assert handle.pending == {}
+    finally:
+        allow_drain.set()
+        if send_task is not None:
+            await asyncio.gather(send_task, return_exceptions=True)
+        await asyncio.gather(supervisor.stop_all(), return_exceptions=True)
+        if handle is not None:
+            await _terminate_process(handle.process)
+
+
+async def test_real_pipe_backpressure_does_not_block_shutdown_cleanup() -> None:
+    supervisor = WorkerSupervisor(
+        heartbeat_timeout=timedelta(seconds=10),
+        shutdown_timeout_seconds=0.1,
+    )
+    handle: WorkerHandle | None = None
+    send_task: asyncio.Task[IpcMessage] | None = None
+    stop_task: asyncio.Task[None] | None = None
+    response_future: asyncio.Future[IpcMessage] | None = None
+    loop = asyncio.get_running_loop()
+    original_exception_handler = loop.get_exception_handler()
+    unexpected_contexts: list[dict[str, object]] = []
+
+    def capture_unexpected(
+        _: asyncio.AbstractEventLoop,
+        context: dict[str, object],
+    ) -> None:
+        unexpected_contexts.append(context)
+
+    loop.set_exception_handler(capture_unexpected)
+    try:
+        handle = await supervisor.start(
+            "project_real_pipe_backpressure",
+            "tests.fixtures.nonreading_worker",
+        )
+        send_task = asyncio.create_task(
+            supervisor.send(
+                handle.worker_id,
+                "command",
+                {"blob": "x" * 900_000},
+                timeout_seconds=5.0,
+            )
+        )
+        for _ in range(200):
+            if handle._write_lock.locked():
+                break
+            await asyncio.sleep(0.01)
+        else:
+            raise AssertionError("real pipe backpressure did not hold the write lock")
+        assert len(handle.pending) == 1
+        response_future = next(iter(handle.pending.values()))
+
+        stop_task = asyncio.create_task(supervisor.stop_all())
+        done, _ = await asyncio.wait({stop_task}, timeout=1.5)
+
+        assert stop_task in done
+        await stop_task
+        with pytest.raises(WorkerUnavailableError, match="worker is unavailable"):
+            await send_task
+        assert handle._write_lock.locked() is False
+        assert handle.pending == {}
+        assert handle.process.returncode is not None
+        assert supervisor._workers == {}
+        assert supervisor._projects == {}
+        assert getattr(response_future, "_log_traceback", True) is False
+        await asyncio.sleep(0)
+        assert unexpected_contexts == []
+    finally:
+        if handle is not None and handle.process.returncode is None:
+            await _terminate_process(handle.process)
+        if send_task is not None:
+            await asyncio.gather(send_task, return_exceptions=True)
+        if stop_task is not None:
+            await asyncio.gather(stop_task, return_exceptions=True)
+        await asyncio.gather(supervisor.stop_all(), return_exceptions=True)
+        loop.set_exception_handler(original_exception_handler)
 
 
 async def test_pending_send_fails_and_registry_clears_when_worker_exits() -> None:
@@ -580,13 +930,17 @@ async def test_stop_all_finishes_cleanup_before_propagating_cancellation() -> No
         heartbeat_timeout=timedelta(seconds=10),
         shutdown_timeout_seconds=0.2,
     )
-    handles = [
-        await supervisor.start("project_cancel_all_1", "tests.fixtures.silent_worker"),
-        await supervisor.start("project_cancel_all_2", "tests.fixtures.silent_worker"),
-    ]
-    stop_all_task = asyncio.create_task(supervisor.stop_all())
+    handles: list[WorkerHandle] = []
+    stop_all_task: asyncio.Task[None] | None = None
 
     try:
+        handles.append(
+            await supervisor.start("project_cancel_all_1", "tests.fixtures.silent_worker")
+        )
+        handles.append(
+            await supervisor.start("project_cancel_all_2", "tests.fixtures.silent_worker")
+        )
+        stop_all_task = asyncio.create_task(supervisor.stop_all())
         await asyncio.wait_for(
             asyncio.gather(*(handle._stopping_event.wait() for handle in handles)),
             timeout=1.0,
@@ -599,7 +953,9 @@ async def test_stop_all_finishes_cleanup_before_propagating_cancellation() -> No
         assert all(handle.process.returncode is not None for handle in handles)
         assert all(supervisor.get(handle.worker_id) is None for handle in handles)
     finally:
-        await supervisor.stop_all()
+        if stop_all_task is not None:
+            await asyncio.gather(stop_all_task, return_exceptions=True)
+        await asyncio.gather(supervisor.stop_all(), return_exceptions=True)
         for handle in handles:
             await _terminate_process(handle.process)
 
@@ -617,12 +973,14 @@ async def test_stop_all_waits_for_in_flight_start_and_stops_worker(
     allow_spawn = asyncio.Event()
     spawn_count = 0
     handle: WorkerHandle | None = None
+    start_task: asyncio.Task[WorkerHandle] | None = None
+    stop_all_task: asyncio.Task[None] | None = None
     late_start_task: asyncio.Task[WorkerHandle] | None = None
 
     if os.name == "nt":
-        real_spawn = windows_spawn_module.create_windows_job_subprocess_exec
+        real_windows_spawn = windows_spawn_module.create_windows_job_subprocess_exec
 
-        async def controlled_spawn(
+        async def controlled_windows_spawn(
             job: WindowsJob,
             *args: str,
         ) -> asyncio.subprocess.Process:
@@ -630,32 +988,34 @@ async def test_stop_all_waits_for_in_flight_start_and_stops_worker(
             spawn_count += 1
             spawn_entered.set()
             await allow_spawn.wait()
-            return await real_spawn(job, *args)
+            return await real_windows_spawn(job, *args)
 
         monkeypatch.setattr(
             windows_spawn_module,
             "create_windows_job_subprocess_exec",
-            controlled_spawn,
+            controlled_windows_spawn,
         )
     else:
-        real_spawn = asyncio.create_subprocess_exec
+        real_posix_spawn = asyncio.create_subprocess_exec
 
-        async def controlled_spawn(*args: str, **kwargs: object) -> asyncio.subprocess.Process:
+        async def controlled_posix_spawn(
+            *args: str,
+            **kwargs: Any,
+        ) -> asyncio.subprocess.Process:
             nonlocal spawn_count
             spawn_count += 1
             spawn_entered.set()
             await allow_spawn.wait()
-            return await real_spawn(*args, **kwargs)
+            return await real_posix_spawn(*args, **kwargs)
 
-        monkeypatch.setattr(asyncio, "create_subprocess_exec", controlled_spawn)
-
-    start_task = asyncio.create_task(
-        supervisor.start("project_stop_start_race", "tests.fixtures.silent_worker")
-    )
-    await asyncio.wait_for(spawn_entered.wait(), timeout=1.0)
-    stop_all_task = asyncio.create_task(supervisor.stop_all())
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", controlled_posix_spawn)
 
     try:
+        start_task = asyncio.create_task(
+            supervisor.start("project_stop_start_race", "tests.fixtures.silent_worker")
+        )
+        await asyncio.wait_for(spawn_entered.wait(), timeout=1.0)
+        stop_all_task = asyncio.create_task(supervisor.stop_all())
         await asyncio.sleep(0)
 
         assert stop_all_task.done() is False
@@ -685,13 +1045,14 @@ async def test_stop_all_waits_for_in_flight_start_and_stops_worker(
         assert supervisor._projects == {}
     finally:
         allow_spawn.set()
-        if handle is None:
+        if handle is None and start_task is not None:
             start_result = await asyncio.gather(start_task, return_exceptions=True)
             if isinstance(start_result[0], WorkerHandle):
                 handle = start_result[0]
         if late_start_task is not None:
             await asyncio.gather(late_start_task, return_exceptions=True)
-        await asyncio.gather(stop_all_task, return_exceptions=True)
+        if stop_all_task is not None:
+            await asyncio.gather(stop_all_task, return_exceptions=True)
         await asyncio.gather(supervisor.stop_all(), return_exceptions=True)
         if handle is not None:
             await _terminate_process(handle.process)
@@ -727,14 +1088,19 @@ async def test_stop_all_waits_for_every_stop_task_before_propagating_error(
         heartbeat_timeout=timedelta(seconds=10),
         shutdown_timeout_seconds=0.1,
     )
-    handles = [
-        await supervisor.start("project_stop_error_1", "tests.fixtures.silent_worker"),
-        await supervisor.start("project_stop_error_2", "tests.fixtures.silent_worker"),
-    ]
+    handles: list[WorkerHandle] = []
+    stop_all_task: asyncio.Task[None] | None = None
     first_failed = asyncio.Event()
     second_started = asyncio.Event()
     allow_second = asyncio.Event()
     second_finished = asyncio.Event()
+    original_cause = OSError("original-cause-secret")
+    original_context = ValueError("original-context-secret")
+    primary_error = RuntimeError("worker stop failed")
+    primary_error.__cause__ = original_cause
+    primary_error.__context__ = original_context
+    primary_error.__suppress_context__ = True
+    secondary_error = LookupError("secondary-stop-secret")
     original_stop_handle = supervisor._stop_handle
 
     async def controlled_stop_handle(
@@ -745,16 +1111,22 @@ async def test_stop_all_waits_for_every_stop_task_before_propagating_error(
         if handle is handles[0]:
             await original_stop_handle(handle, graceful=graceful)
             first_failed.set()
-            raise RuntimeError("worker stop failed")
+            raise primary_error
         second_started.set()
         await allow_second.wait()
         await original_stop_handle(handle, graceful=graceful)
         second_finished.set()
-
-    monkeypatch.setattr(supervisor, "_stop_handle", controlled_stop_handle)
-    stop_all_task = asyncio.create_task(supervisor.stop_all())
+        raise secondary_error
 
     try:
+        handles.append(
+            await supervisor.start("project_stop_error_1", "tests.fixtures.silent_worker")
+        )
+        handles.append(
+            await supervisor.start("project_stop_error_2", "tests.fixtures.silent_worker")
+        )
+        monkeypatch.setattr(supervisor, "_stop_handle", controlled_stop_handle)
+        stop_all_task = asyncio.create_task(supervisor.stop_all())
         await asyncio.wait_for(
             asyncio.gather(first_failed.wait(), second_started.wait()),
             timeout=2.0,
@@ -764,13 +1136,21 @@ async def test_stop_all_waits_for_every_stop_task_before_propagating_error(
             await asyncio.wait_for(asyncio.shield(stop_all_task), timeout=0.05)
 
         allow_second.set()
-        with pytest.raises(RuntimeError, match="worker stop failed"):
+        with pytest.raises(RuntimeError, match="worker stop failed") as raised:
             await stop_all_task
 
         assert second_finished.is_set()
         assert all(handle.process.returncode is not None for handle in handles)
+        assert raised.value is primary_error
+        assert raised.value.__cause__ is original_cause
+        assert raised.value.__context__ is original_context
+        assert raised.value.__suppress_context__ is True
+        assert raised.value.__notes__ == ["Additional worker cleanup failure occurred."]
+        assert "secondary-stop-secret" not in raised.value.__notes__[0]
     finally:
         allow_second.set()
+        if stop_all_task is not None:
+            await asyncio.gather(stop_all_task, return_exceptions=True)
         await asyncio.gather(supervisor.stop_all(), return_exceptions=True)
         for handle in handles:
             await _terminate_process(handle.process)
@@ -783,17 +1163,9 @@ async def test_pending_failure_still_schedules_and_waits_for_every_worker_stop(
         heartbeat_timeout=timedelta(seconds=10),
         shutdown_timeout_seconds=0.1,
     )
-    handles = [
-        await supervisor.start("project_pending_failure_1", "tests.fixtures.silent_worker"),
-        await supervisor.start("project_pending_failure_2", "tests.fixtures.silent_worker"),
-    ]
-    identities = tuple(
-        _capture_process_identity(f"worker {index}", handle.process.pid)
-        for index, handle in enumerate(handles, start=1)
-    )
-    pending = [asyncio.get_running_loop().create_future() for _ in handles]
-    for index, handle in enumerate(handles):
-        handle.pending[f"pending-failure-{index}"] = pending[index]
+    handles: list[WorkerHandle] = []
+    identities: tuple[_ProcessIdentity, ...] = ()
+    pending: list[asyncio.Future[IpcMessage]] = []
     real_fail_pending = supervisor._fail_pending
     injected = False
 
@@ -804,9 +1176,22 @@ async def test_pending_failure_still_schedules_and_waits_for_every_worker_stop(
             raise RuntimeError("pending cleanup failed")
         real_fail_pending(handle, error)
 
-    monkeypatch.setattr(supervisor, "_fail_pending", fail_pending_once)
-
     try:
+        handles.append(
+            await supervisor.start("project_pending_failure_1", "tests.fixtures.silent_worker")
+        )
+        handles.append(
+            await supervisor.start("project_pending_failure_2", "tests.fixtures.silent_worker")
+        )
+        identities = tuple(
+            _capture_process_identity(f"worker {index}", handle.process.pid)
+            for index, handle in enumerate(handles, start=1)
+        )
+        pending = [asyncio.get_running_loop().create_future() for _ in handles]
+        for index, handle in enumerate(handles):
+            handle.pending[f"pending-failure-{index}"] = pending[index]
+        monkeypatch.setattr(supervisor, "_fail_pending", fail_pending_once)
+
         with pytest.raises(RuntimeError, match="pending cleanup failed"):
             await supervisor.stop_all()
 
@@ -839,14 +1224,8 @@ async def test_stop_task_creation_failure_uses_fallback_and_cleans_every_worker(
         heartbeat_timeout=timedelta(seconds=10),
         shutdown_timeout_seconds=0.1,
     )
-    handles = [
-        await supervisor.start("project_task_failure_1", "tests.fixtures.silent_worker"),
-        await supervisor.start("project_task_failure_2", "tests.fixtures.silent_worker"),
-    ]
-    identities = tuple(
-        _capture_process_identity(f"worker {index}", handle.process.pid)
-        for index, handle in enumerate(handles, start=1)
-    )
+    handles: list[WorkerHandle] = []
+    identities: tuple[_ProcessIdentity, ...] = ()
     loop = asyncio.get_running_loop()
     real_create_task = loop.create_task
     injected = False
@@ -869,9 +1248,19 @@ async def test_stop_task_creation_failure_uses_fallback_and_cleans_every_worker(
             raise RuntimeError("stop task creation failed")
         return real_create_task(coroutine, name=name, context=context)
 
-    monkeypatch.setattr(loop, "create_task", fail_create_task_once)
-
     try:
+        handles.append(
+            await supervisor.start("project_task_failure_1", "tests.fixtures.silent_worker")
+        )
+        handles.append(
+            await supervisor.start("project_task_failure_2", "tests.fixtures.silent_worker")
+        )
+        identities = tuple(
+            _capture_process_identity(f"worker {index}", handle.process.pid)
+            for index, handle in enumerate(handles, start=1)
+        )
+        monkeypatch.setattr(loop, "create_task", fail_create_task_once)
+
         with pytest.raises(RuntimeError, match="stop task creation failed"):
             await supervisor.stop_all()
 
@@ -1060,22 +1449,37 @@ async def test_stop_all_capture_failure_still_completes_full_worker_cleanup(
     project_id = f"capture_failure_{uuid4().hex}"
     pid_path = _child_pid_path(project_id)
     pid_path.unlink(missing_ok=True)
-    handle = await supervisor.start(project_id, "tests.fixtures.child_worker")
-    child_pid = await _wait_for_child_pid(pid_path)
-    identities = (
-        _capture_process_identity("worker", handle.process.pid),
-        _capture_process_identity("worker child", child_pid),
-    )
-    pending = asyncio.get_running_loop().create_future()
-    handle.pending["capture-failure-pending"] = pending
+    handle: WorkerHandle | None = None
+    child_pid: int | None = None
+    identities: tuple[_ProcessIdentity, ...] = ()
+    pending: asyncio.Future[IpcMessage] | None = None
+    capture_error = RuntimeError("descendant capture failed")
+    capture_cause = OSError("capture-cause-secret")
+    capture_context = ValueError("capture-context-secret")
+    capture_error.__cause__ = capture_cause
+    capture_error.__context__ = capture_context
+    capture_error.__suppress_context__ = True
+    close_error = LookupError("close-job-secret")
 
     def fail_capture(_: int) -> list[object]:
-        raise RuntimeError("descendant capture failed")
+        raise capture_error
 
-    monkeypatch.setattr(supervisor_module, "_capture_descendants_sync", fail_capture)
+    async def fail_remove_registry(_: WorkerHandle) -> None:
+        raise close_error
 
     try:
-        with pytest.raises(RuntimeError, match="descendant capture failed"):
+        handle = await supervisor.start(project_id, "tests.fixtures.child_worker")
+        child_pid = await _wait_for_child_pid(pid_path)
+        identities = (
+            _capture_process_identity("worker", handle.process.pid),
+            _capture_process_identity("worker child", child_pid),
+        )
+        pending = asyncio.get_running_loop().create_future()
+        handle.pending["capture-failure-pending"] = pending
+        monkeypatch.setattr(supervisor_module, "_capture_descendants_sync", fail_capture)
+        monkeypatch.setattr(supervisor, "_remove_registry", fail_remove_registry)
+
+        with pytest.raises(RuntimeError, match="descendant capture failed") as raised:
             await supervisor.stop_all()
 
         assert handle.process.returncode is not None
@@ -1087,20 +1491,30 @@ async def test_stop_all_capture_failure_still_completes_full_worker_cleanup(
         assert handle.pending == {}
         assert supervisor._workers == {}
         assert supervisor._projects == {}
+        assert raised.value is capture_error
+        assert raised.value.__cause__ is capture_cause
+        assert raised.value.__context__ is capture_context
+        assert raised.value.__suppress_context__ is True
+        assert raised.value.__notes__ == ["Additional worker cleanup failure occurred."]
+        assert "close-job-secret" not in raised.value.__notes__[0]
     finally:
-        if pending.done():
+        if pending is not None and pending.done():
             pending.exception()
+        await asyncio.gather(supervisor.stop_all(), return_exceptions=True)
         await asyncio.to_thread(_kill_process_identities, identities)
-        if handle.job is not None:
-            await asyncio.to_thread(handle.job.close)
-        handle.reader_task.cancel()
-        handle._stderr_task.cancel()
-        await asyncio.gather(
-            handle.reader_task,
-            handle._stderr_task,
-            return_exceptions=True,
-        )
-        await _terminate_process(handle.process)
+        if handle is not None:
+            if handle.job is not None:
+                await asyncio.to_thread(handle.job.close)
+            handle.reader_task.cancel()
+            handle._stderr_task.cancel()
+            await asyncio.gather(
+                handle.reader_task,
+                handle._stderr_task,
+                return_exceptions=True,
+            )
+            await _terminate_process(handle.process)
+        if child_pid is not None:
+            await asyncio.to_thread(_kill_pid_if_alive, child_pid)
         pid_path.unlink(missing_ok=True)
 
 
@@ -1114,23 +1528,28 @@ async def test_unexpected_shutdown_request_failure_still_completes_full_cleanup(
     project_id = f"request_failure_{uuid4().hex}"
     pid_path = _child_pid_path(project_id)
     pid_path.unlink(missing_ok=True)
-    handle = await supervisor.start(project_id, "tests.fixtures.child_worker")
-    child_pid = await _wait_for_child_pid(pid_path)
-    identities = (
-        _capture_process_identity("worker", handle.process.pid),
-        _capture_process_identity("worker child", child_pid),
-    )
-    pending = asyncio.get_running_loop().create_future()
-    handle.pending["request-failure-pending"] = pending
-    detached_job = handle.job
-    handle.job = None
+    handle: WorkerHandle | None = None
+    child_pid: int | None = None
+    identities: tuple[_ProcessIdentity, ...] = ()
+    pending: asyncio.Future[IpcMessage] | None = None
+    detached_job: WindowsJob | None = None
 
     async def fail_shutdown_request(*_: object, **__: object) -> None:
         raise RuntimeError("shutdown request failed")
 
-    monkeypatch.setattr(supervisor, "_request", fail_shutdown_request)
-
     try:
+        handle = await supervisor.start(project_id, "tests.fixtures.child_worker")
+        child_pid = await _wait_for_child_pid(pid_path)
+        identities = (
+            _capture_process_identity("worker", handle.process.pid),
+            _capture_process_identity("worker child", child_pid),
+        )
+        pending = asyncio.get_running_loop().create_future()
+        handle.pending["request-failure-pending"] = pending
+        detached_job = handle.job
+        handle.job = None
+        monkeypatch.setattr(supervisor, "_request", fail_shutdown_request)
+
         with pytest.raises(RuntimeError, match="shutdown request failed"):
             await supervisor.stop_all()
 
@@ -1143,19 +1562,25 @@ async def test_unexpected_shutdown_request_failure_still_completes_full_cleanup(
         assert supervisor._workers == {}
         assert supervisor._projects == {}
     finally:
-        if pending.done():
+        if pending is not None and pending.done():
             pending.exception()
+        await asyncio.gather(supervisor.stop_all(), return_exceptions=True)
         await asyncio.to_thread(_kill_process_identities, identities)
         if detached_job is not None:
             await asyncio.to_thread(detached_job.close)
-        handle.reader_task.cancel()
-        handle._stderr_task.cancel()
-        await asyncio.gather(
-            handle.reader_task,
-            handle._stderr_task,
-            return_exceptions=True,
-        )
-        await _terminate_process(handle.process)
+        if handle is not None:
+            if detached_job is None and handle.job is not None:
+                await asyncio.to_thread(handle.job.close)
+            handle.reader_task.cancel()
+            handle._stderr_task.cancel()
+            await asyncio.gather(
+                handle.reader_task,
+                handle._stderr_task,
+                return_exceptions=True,
+            )
+            await _terminate_process(handle.process)
+        if child_pid is not None:
+            await asyncio.to_thread(_kill_pid_if_alive, child_pid)
         pid_path.unlink(missing_ok=True)
 
 
@@ -1349,7 +1774,8 @@ async def test_stop_on_broken_stdin_does_not_await_its_own_cleanup() -> None:
         await _terminate_process(handle.process)
 
 
-async def test_graceful_stop_cleans_child_after_parent_exits_zero() -> None:
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process group containment only")
+async def test_graceful_stop_cleans_posix_group_after_parent_exits_zero() -> None:
     supervisor = WorkerSupervisor(
         heartbeat_timeout=timedelta(seconds=10),
         shutdown_timeout_seconds=0.1,
@@ -1446,6 +1872,70 @@ async def test_start_failure_after_spawn_reaps_process(
     finally:
         for process in spawned:
             await _terminate_process(process)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process group containment only")
+async def test_posix_start_failure_reaps_process_group(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_id = f"posix_partial_start_{uuid4().hex}"
+    pid_path = _child_pid_path(project_id)
+    pid_path.unlink(missing_ok=True)
+    identities: list[_ProcessIdentity] = []
+    spawned: list[asyncio.subprocess.Process] = []
+    real_spawn = asyncio.create_subprocess_exec
+    real_group_cleanup = WorkerSupervisor._terminate_posix_process_group
+
+    async def recording_spawn(
+        *args: str,
+        **kwargs: Any,
+    ) -> asyncio.subprocess.Process:
+        process = await real_spawn(*args, **kwargs)
+        spawned.append(process)
+        identities.append(_capture_process_identity("worker", process.pid))
+        return process
+
+    async def cleanup_group_then_fail(
+        process_group_id: int,
+        process_id: int,
+    ) -> None:
+        await real_group_cleanup(process_group_id, process_id)
+        raise RuntimeError("cleanup-secret")
+
+    def broken_clock() -> datetime:
+        for _ in range(200):
+            raw_child_pid = _read_text_if_present(pid_path)
+            if raw_child_pid is not None:
+                identities.append(_capture_process_identity("worker child", int(raw_child_pid)))
+                raise RuntimeError("clock failed")
+            time.sleep(0.01)
+        raise AssertionError("child PID fixture was not published")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", recording_spawn)
+    monkeypatch.setattr(
+        WorkerSupervisor,
+        "_terminate_posix_process_group",
+        staticmethod(cleanup_group_then_fail),
+    )
+    supervisor = WorkerSupervisor(
+        heartbeat_timeout=timedelta(seconds=10),
+        clock=broken_clock,
+    )
+
+    try:
+        with pytest.raises(WorkerUnavailableError, match="could not be started") as raised:
+            await supervisor.start(project_id, "tests.fixtures.immediate_child_worker")
+
+        assert len(identities) == 2
+        assert await _wait_for_identity_exit(tuple(identities)) == ()
+        assert raised.value.__notes__ == ["Additional worker cleanup failure occurred."]
+        assert "RuntimeError" not in raised.value.__notes__[0]
+        assert "cleanup-secret" not in raised.value.__notes__[0]
+    finally:
+        await asyncio.to_thread(_kill_process_identities, tuple(identities))
+        for process in spawned:
+            await _terminate_process(process)
+        pid_path.unlink(missing_ok=True)
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows Job containment only")

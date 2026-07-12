@@ -1,6 +1,7 @@
 from typing import Literal
 
 from fastapi import APIRouter, Request, status
+from pydantic import BaseModel
 from sqlalchemy import inspect, text
 
 from agent_platform import __version__
@@ -12,14 +13,19 @@ EXPECTED_DATABASE_REVISION = "0001_foundation"
 REQUIRED_DATABASE_TABLES = {"alembic_version", "event_log", "outbox_events"}
 
 
+class SystemInfoResponse(BaseModel):
+    backend_version: str
+    protocol_version: Literal[1]
+
+
 @router.get("/health")
 async def health() -> dict[str, Literal["ok"]]:
     return {"status": "ok"}
 
 
-@router.get("/system/info")
-async def system_info() -> dict[str, str | int]:
-    return {"backend_version": __version__, "protocol_version": 1}
+@router.get("/system/info", response_model=SystemInfoResponse)
+async def system_info() -> SystemInfoResponse:
+    return SystemInfoResponse(backend_version=__version__, protocol_version=1)
 
 
 @router.get("/readiness")

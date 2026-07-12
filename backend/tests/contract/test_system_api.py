@@ -127,6 +127,26 @@ async def test_system_info_returns_backend_and_protocol_versions(tmp_path: Path)
     }
 
 
+def test_system_info_openapi_declares_required_version_fields(tmp_path: Path) -> None:
+    app = create_app(_settings(tmp_path))
+
+    operation = app.openapi()["paths"]["/api/v1/system/info"]["get"]
+    response_schema = operation["responses"]["200"]["content"]["application/json"]["schema"]
+    schema_name = response_schema["$ref"].rsplit("/", maxsplit=1)[-1]
+    schema = app.openapi()["components"]["schemas"][schema_name]
+
+    assert set(schema["required"]) == {"backend_version", "protocol_version"}
+    assert schema["properties"]["backend_version"] == {
+        "title": "Backend Version",
+        "type": "string",
+    }
+    assert schema["properties"]["protocol_version"] == {
+        "const": 1,
+        "title": "Protocol Version",
+        "type": "integer",
+    }
+
+
 @pytest.mark.asyncio
 async def test_system_info_requires_local_session(tmp_path: Path) -> None:
     app = create_app(_settings(tmp_path))

@@ -1,5 +1,6 @@
 import asyncio
 import os
+import signal
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -16,6 +17,10 @@ from agent_platform.interfaces.ipc.messages import IpcMessage, MessageType
 from .windows_job import WindowsJob, WindowsStartGate
 
 _WINDOWS_START_GATE_TIMEOUT_SECONDS = 5.0
+_SECONDARY_CLEANUP_FAILURE_NOTE = "Additional worker cleanup failure occurred."
+_POSIX_GROUP_TERM_TIMEOUT_SECONDS = 0.5
+_POSIX_GROUP_KILL_TIMEOUT_SECONDS = 0.5
+_PIPE_CLOSE_TIMEOUT_SECONDS = 0.5
 
 
 class WorkerError(RuntimeError):
@@ -32,6 +37,24 @@ class WorkerProtocolError(WorkerUnavailableError):
 
 class WorkerTimeoutError(WorkerError):
     """Raised when a worker does not answer within the response deadline."""
+
+
+def _add_secondary_cleanup_note(primary_error: BaseException) -> None:
+    """Best-effort redacted reporting for cleanup failures after the primary error."""
+
+    original_cause = primary_error.__cause__
+    original_context = primary_error.__context__
+    original_suppress_context = primary_error.__suppress_context__
+    try:
+        BaseException.add_note(primary_error, _SECONDARY_CLEANUP_FAILURE_NOTE)
+    except BaseException:
+        return
+    try:
+        primary_error.__cause__ = original_cause
+        primary_error.__context__ = original_context
+        primary_error.__suppress_context__ = original_suppress_context
+    except BaseException:
+        pass
 
 
 def _terminate_psutil_processes(processes: list[Any]) -> None:
@@ -88,6 +111,7 @@ class WorkerHandle:
     outbound_sequence: int
     last_heartbeat_at: datetime
     pending: dict[str, asyncio.Future[IpcMessage]]
+    process_group_id: int | None
     job: WindowsJob | None = field(default=None, repr=False)
     last_inbound_sequence: int = 0
     seen_inbound_message_ids: set[str] = field(default_factory=set, repr=False)
@@ -132,6 +156,7 @@ class WorkerSupervisor:
             if project_id in self._projects:
                 raise WorkerError("worker already active for project")
             process: asyncio.subprocess.Process | None = None
+            process_group_id: int | None = None
             job: WindowsJob | None = None
             start_gate: WindowsStartGate | None = None
             reader_task: asyncio.Task[None] | None = None
@@ -178,7 +203,9 @@ class WorkerSupervisor:
                         stdin=asyncio.subprocess.PIPE,
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
+                        start_new_session=True,
                     )
+                    process_group_id = process.pid
                 if job is not None and start_gate is not None:
                     await self._wait_for_start_gate(start_gate, process)
                     start_gate.release()
@@ -192,6 +219,7 @@ class WorkerSupervisor:
                     outbound_sequence=0,
                     last_heartbeat_at=self._clock(),
                     pending={},
+                    process_group_id=process_group_id,
                     job=job,
                 )
                 reader_task = asyncio.create_task(self._read_stdout(handle))
@@ -201,20 +229,33 @@ class WorkerSupervisor:
                 self._workers[handle.worker_id] = handle
                 self._projects[project_id] = handle
                 return handle
-            except BaseException as error:
+            except BaseException as start_error:
+                cleanup_error: BaseException | None = None
                 if process is not None or job is not None or start_gate is not None:
-                    await await_cancellation_resistant(
-                        self._cleanup_partial_start(
-                            process,
-                            reader_task,
-                            stderr_task,
-                            job,
-                            start_gate,
+                    try:
+                        await await_cancellation_resistant(
+                            self._cleanup_partial_start(
+                                process,
+                                reader_task,
+                                stderr_task,
+                                job,
+                                start_gate,
+                                process_group_id,
+                            )
                         )
-                    )
-                if isinstance(error, (asyncio.CancelledError, KeyboardInterrupt, SystemExit)):
-                    raise
-                raise WorkerUnavailableError("worker could not be started") from None
+                    except BaseException as current_cleanup_error:
+                        cleanup_error = current_cleanup_error
+                control_flow_errors = (asyncio.CancelledError, KeyboardInterrupt, SystemExit)
+                if isinstance(start_error, control_flow_errors):
+                    if cleanup_error is not None:
+                        _add_secondary_cleanup_note(start_error)
+                    raise start_error
+                if isinstance(cleanup_error, control_flow_errors):
+                    raise cleanup_error from None
+                public_error = WorkerUnavailableError("worker could not be started")
+                if cleanup_error is not None:
+                    _add_secondary_cleanup_note(public_error)
+                raise public_error from None
 
     async def ping(self, worker_id: str) -> IpcMessage:
         handle = self._require(worker_id)
@@ -301,12 +342,19 @@ class WorkerSupervisor:
             await self._stop_handle(handle, graceful=graceful)
         except BaseException as error:
             stop_error = error
-        if setup_errors:
-            if stop_error is not None:
-                raise setup_errors[0] from stop_error
-            raise setup_errors[0]
+        primary_error: BaseException | None = None
+        for setup_error in setup_errors:
+            if primary_error is None:
+                primary_error = setup_error
+            elif setup_error is not primary_error:
+                _add_secondary_cleanup_note(primary_error)
         if stop_error is not None:
-            raise stop_error
+            if primary_error is None:
+                primary_error = stop_error
+            elif stop_error is not primary_error:
+                _add_secondary_cleanup_note(primary_error)
+        if primary_error is not None:
+            raise primary_error
 
     async def _stop_handle(self, handle: WorkerHandle, *, graceful: bool) -> None:
         first_error: BaseException | None = None
@@ -315,6 +363,8 @@ class WorkerSupervisor:
             nonlocal first_error
             if first_error is None:
                 first_error = error
+            elif error is not first_error:
+                _add_secondary_cleanup_note(first_error)
 
         descendants: list[Any] = []
         capture_failed = False
@@ -348,7 +398,13 @@ class WorkerSupervisor:
             except BaseException as error:
                 remember_error(error)
             try:
-                await self._close_stdin(handle)
+                await self._close_stdin(
+                    handle,
+                    timeout_seconds=max(
+                        0.0,
+                        deadline - asyncio.get_running_loop().time(),
+                    ),
+                )
             except BaseException as error:
                 remember_error(error)
             if handle.process.returncode is None:
@@ -362,7 +418,20 @@ class WorkerSupervisor:
                 except BaseException as error:
                     remember_error(error)
 
-        if handle.process.returncode is None:
+        if handle.process_group_id is not None:
+            try:
+                await self._terminate_posix_process_group(
+                    handle.process_group_id,
+                    handle.process.pid,
+                )
+            except BaseException as error:
+                remember_error(error)
+            if handle.process.returncode is None:
+                try:
+                    await self._terminate_process_tree(handle.process)
+                except BaseException as error:
+                    remember_error(error)
+        elif handle.process.returncode is None:
             try:
                 await self._terminate_process_tree(handle.process)
             except BaseException as error:
@@ -382,6 +451,14 @@ class WorkerSupervisor:
                 await self._kill_process_directly(handle.process)
             except BaseException as error:
                 remember_error(error)
+
+        try:
+            await self._close_stdin(
+                handle,
+                timeout_seconds=_PIPE_CLOSE_TIMEOUT_SECONDS,
+            )
+        except BaseException as error:
+            remember_error(error)
 
         current_task = asyncio.current_task()
         cleanup_tasks = tuple(
@@ -437,18 +514,25 @@ class WorkerSupervisor:
             return
         stop_tasks: list[asyncio.Task[None]] = []
         first_error: BaseException | None = None
+
+        def remember_error(error: BaseException) -> None:
+            nonlocal first_error
+            if first_error is None:
+                first_error = error
+            elif error is not first_error:
+                _add_secondary_cleanup_note(first_error)
+
         for handle in handles:
             try:
                 stop_tasks.append(await self._ensure_stop_task(handle, graceful=True))
             except BaseException as error:
-                if first_error is None:
-                    first_error = error
+                remember_error(error)
                 if handle._stop_task is not None:
                     stop_tasks.append(handle._stop_task)
         results = await asyncio.gather(*stop_tasks, return_exceptions=True)
         for result in results:
-            if first_error is None and isinstance(result, BaseException):
-                first_error = result
+            if isinstance(result, BaseException):
+                remember_error(result)
         if first_error is not None:
             raise first_error
 
@@ -504,42 +588,69 @@ class WorkerSupervisor:
         if handle._stopping and not allow_stopping:
             raise WorkerUnavailableError("worker is unavailable")
         loop = asyncio.get_running_loop()
+        deadline = loop.time() + max(0.0, timeout_seconds)
         response: asyncio.Future[IpcMessage] = loop.create_future()
+        message_id: str | None = None
         write_failed = False
-        async with handle._write_lock:
-            async with handle._state_lock:
-                if (
-                    handle._stopping and not allow_stopping
-                ) or handle.process.returncode is not None:
-                    raise WorkerUnavailableError("worker is unavailable")
-                handle.outbound_sequence += 1
-                message = IpcMessage(
-                    message_id=new_id("msg"),
-                    sequence=handle.outbound_sequence,
-                    project_id=handle.project_id,
-                    type=message_type,
-                    payload=payload,
-                )
-                handle.pending[message.message_id] = response
-                handle._pending_event.set()
-            try:
-                frame = encode_frame(message)
-                writer = handle.process.stdin
-                if writer is None:
-                    raise WorkerUnavailableError("worker is unavailable")
-                writer.write(frame)
-                drain_task = asyncio.create_task(writer.drain())
-                await await_cancellation_resistant(drain_task)
-            except OSError:
-                handle.pending.pop(message.message_id, None)
-                if not response.done():
-                    response.cancel()
-                write_failed = True
-            except BaseException:
-                handle.pending.pop(message.message_id, None)
-                if not response.done():
-                    response.cancel()
-                raise
+
+        def abandon_request() -> None:
+            if message_id is not None:
+                handle.pending.pop(message_id, None)
+            if response.done():
+                if not response.cancelled():
+                    try:
+                        response.exception()
+                    except BaseException:
+                        pass
+            else:
+                response.cancel()
+
+        try:
+            async with asyncio.timeout_at(deadline):
+                async with handle._write_lock:
+                    async with handle._state_lock:
+                        if (
+                            handle._stopping and not allow_stopping
+                        ) or handle.process.returncode is not None:
+                            raise WorkerUnavailableError("worker is unavailable")
+                        handle.outbound_sequence += 1
+                        message = IpcMessage(
+                            message_id=new_id("msg"),
+                            sequence=handle.outbound_sequence,
+                            project_id=handle.project_id,
+                            type=message_type,
+                            payload=payload,
+                        )
+                        message_id = message.message_id
+                        handle.pending[message_id] = response
+                        handle._pending_event.set()
+                    frame = encode_frame(message)
+                    writer = handle.process.stdin
+                    if writer is None:
+                        raise WorkerUnavailableError("worker is unavailable")
+                    writer.write(frame)
+                    drain_task = loop.create_task(writer.drain())
+                    try:
+                        await asyncio.shield(drain_task)
+                    finally:
+                        if not drain_task.done():
+                            drain_task.cancel()
+                        await await_cancellation_resistant(
+                            asyncio.gather(drain_task, return_exceptions=True)
+                        )
+                return await response
+        except TimeoutError:
+            abandon_request()
+            raise WorkerTimeoutError("worker response timed out") from None
+        except OSError:
+            abandon_request()
+            write_failed = True
+        except asyncio.CancelledError:
+            abandon_request()
+            raise
+        except BaseException:
+            abandon_request()
+            raise
 
         if write_failed:
             if allow_stopping:
@@ -553,19 +664,7 @@ class WorkerSupervisor:
                 raise WorkerUnavailableError("worker is unavailable") from None
             await await_cancellation_resistant(stop_task)
             raise WorkerUnavailableError("worker is unavailable") from None
-
-        try:
-            return await asyncio.wait_for(response, timeout=timeout_seconds)
-        except TimeoutError:
-            handle.pending.pop(message.message_id, None)
-            if not response.done():
-                response.cancel()
-            raise WorkerTimeoutError("worker response timed out") from None
-        except asyncio.CancelledError:
-            handle.pending.pop(message.message_id, None)
-            if not response.done():
-                response.cancel()
-            raise
+        raise RuntimeError("worker request ended without a result")
 
     async def _read_stdout(self, handle: WorkerHandle) -> None:
         reader = handle.process.stdout
@@ -672,14 +771,24 @@ class WorkerSupervisor:
         except Exception:
             return
 
-    async def _close_stdin(self, handle: WorkerHandle) -> None:
+    async def _close_stdin(
+        self,
+        handle: WorkerHandle,
+        *,
+        timeout_seconds: float,
+    ) -> None:
         writer = handle.process.stdin
         if writer is None:
             return
         writer.close()
+        if handle.process.returncode is None:
+            return
         try:
-            await writer.wait_closed()
-        except (BrokenPipeError, ConnectionResetError, OSError):
+            await asyncio.wait_for(
+                writer.wait_closed(),
+                timeout=timeout_seconds,
+            )
+        except (BrokenPipeError, ConnectionResetError, OSError, TimeoutError):
             pass
 
     async def _cleanup_partial_start(
@@ -689,31 +798,80 @@ class WorkerSupervisor:
         stderr_task: asyncio.Task[None] | None,
         job: WindowsJob | None,
         start_gate: WindowsStartGate | None,
+        process_group_id: int | None,
     ) -> None:
+        first_error: BaseException | None = None
+
+        def remember_error(error: BaseException) -> None:
+            nonlocal first_error
+            if first_error is None:
+                first_error = error
+            elif error is not first_error:
+                _add_secondary_cleanup_note(first_error)
+
         tasks = [task for task in (reader_task, stderr_task) if task is not None]
         for task in tasks:
-            task.cancel()
-        try:
-            if process is not None:
-                await self._terminate_process_tree(process)
-        finally:
-            for resource in (job, start_gate):
-                if resource is None:
-                    continue
+            try:
+                task.cancel()
+            except BaseException as error:
+                remember_error(error)
+        if process is not None:
+            if process_group_id is not None:
                 try:
-                    resource.close()
-                except OSError:
-                    pass
+                    await self._terminate_posix_process_group(
+                        process_group_id,
+                        process.pid,
+                    )
+                except BaseException as error:
+                    remember_error(error)
+                    try:
+                        await self._terminate_process_tree(process)
+                    except BaseException as fallback_error:
+                        remember_error(fallback_error)
+            else:
+                try:
+                    await self._terminate_process_tree(process)
+                except BaseException as error:
+                    remember_error(error)
+            if process.returncode is None:
+                try:
+                    await self._kill_process_directly(process)
+                except BaseException as error:
+                    remember_error(error)
+        for resource in (job, start_gate):
+            if resource is None:
+                continue
+            try:
+                resource.close()
+            except BaseException as error:
+                remember_error(error)
         if process is not None:
             writer = process.stdin
             if writer is not None:
-                writer.close()
                 try:
-                    await writer.wait_closed()
-                except OSError:
+                    writer.close()
+                    await asyncio.wait_for(
+                        writer.wait_closed(),
+                        timeout=_PIPE_CLOSE_TIMEOUT_SECONDS,
+                    )
+                except (OSError, TimeoutError):
                     pass
+                except BaseException as error:
+                    remember_error(error)
         if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+            try:
+                task_results = await asyncio.gather(*tasks, return_exceptions=True)
+            except BaseException as error:
+                remember_error(error)
+            else:
+                for result in task_results:
+                    if isinstance(result, BaseException) and not isinstance(
+                        result,
+                        asyncio.CancelledError,
+                    ):
+                        remember_error(result)
+        if first_error is not None:
+            raise first_error
 
     @staticmethod
     async def _wait_for_start_gate(
@@ -734,18 +892,24 @@ class WorkerSupervisor:
     @staticmethod
     def _fail_pending(handle: WorkerHandle, error: WorkerError) -> None:
         first_error: BaseException | None = None
+
+        def remember_error(notification_error: BaseException) -> None:
+            nonlocal first_error
+            if first_error is None:
+                first_error = notification_error
+            elif notification_error is not first_error:
+                _add_secondary_cleanup_note(first_error)
+
         for message_id, future in list(handle.pending.items()):
             try:
                 if not future.done():
                     future.set_exception(type(error)(str(error)))
             except BaseException as notification_error:
-                if first_error is None:
-                    first_error = notification_error
+                remember_error(notification_error)
                 try:
                     asyncio.Future.cancel(future)
                 except BaseException as fallback_error:
-                    if first_error is None:
-                        first_error = fallback_error
+                    remember_error(fallback_error)
             finally:
                 if handle.pending.get(message_id) is future:
                     del handle.pending[message_id]
@@ -763,45 +927,110 @@ class WorkerSupervisor:
                 del self._projects[handle.project_id]
 
     @staticmethod
+    async def _terminate_posix_process_group(
+        process_group_id: int,
+        process_id: int,
+    ) -> None:
+        if os.name == "nt":
+            return
+        killpg = getattr(os, "killpg", None)
+        getpgrp = getattr(os, "getpgrp", None)
+        sigterm = getattr(signal, "SIGTERM", None)
+        sigkill = getattr(signal, "SIGKILL", None)
+        if not callable(killpg) or not callable(getpgrp) or sigterm is None or sigkill is None:
+            raise OSError("POSIX process group controls are unavailable")
+        kill_group = cast(Callable[[int, int], None], killpg)
+        current_group = cast(Callable[[], int], getpgrp)()
+        if (
+            process_group_id <= 1
+            or process_id <= 1
+            or process_group_id != process_id
+            or process_group_id == current_group
+        ):
+            raise OSError("unsafe worker process group")
+
+        async def wait_for_group_exit(timeout_seconds: float) -> bool:
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + timeout_seconds
+            while True:
+                try:
+                    kill_group(process_group_id, 0)
+                except ProcessLookupError:
+                    return True
+                except PermissionError:
+                    pass
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    return False
+                await asyncio.sleep(min(0.01, remaining))
+
+        try:
+            kill_group(process_group_id, int(sigterm))
+        except ProcessLookupError:
+            return
+        if await wait_for_group_exit(_POSIX_GROUP_TERM_TIMEOUT_SECONDS):
+            return
+        try:
+            kill_group(process_group_id, int(sigkill))
+        except ProcessLookupError:
+            return
+        if not await wait_for_group_exit(_POSIX_GROUP_KILL_TIMEOUT_SECONDS):
+            raise TimeoutError("worker process group did not terminate")
+
+    @staticmethod
     async def _terminate_process_tree(process: asyncio.subprocess.Process) -> None:
         if process.returncode is not None:
             return
         first_error: BaseException | None = None
+
+        def remember_error(error: BaseException) -> None:
+            nonlocal first_error
+            if first_error is None:
+                first_error = error
+            elif error is not first_error:
+                _add_secondary_cleanup_note(first_error)
+
         try:
             await asyncio.to_thread(_terminate_process_tree_sync, process.pid)
         except BaseException as error:
-            first_error = error
+            remember_error(error)
         if process.returncode is None and first_error is None:
             try:
                 await asyncio.wait_for(process.wait(), timeout=1.0)
             except TimeoutError:
                 pass
             except BaseException as error:
-                first_error = error
+                remember_error(error)
         if process.returncode is None:
             try:
                 await WorkerSupervisor._kill_process_directly(process)
             except BaseException as error:
-                if first_error is None:
-                    first_error = error
+                remember_error(error)
         if first_error is not None:
             raise first_error
 
     @staticmethod
     async def _kill_process_directly(process: asyncio.subprocess.Process) -> None:
         first_error: BaseException | None = None
+
+        def remember_error(error: BaseException) -> None:
+            nonlocal first_error
+            if first_error is None:
+                first_error = error
+            elif error is not first_error:
+                _add_secondary_cleanup_note(first_error)
+
         if process.returncode is None:
             try:
                 process.kill()
             except ProcessLookupError:
                 pass
             except BaseException as error:
-                first_error = error
+                remember_error(error)
         try:
             await asyncio.wait_for(process.wait(), timeout=1.0)
         except BaseException as error:
-            if first_error is None:
-                first_error = error
+            remember_error(error)
         if first_error is not None:
             raise first_error
 
@@ -821,5 +1050,5 @@ class WorkerSupervisor:
             try:
                 WindowsJob.close(job)
             except BaseException:
-                pass
+                _add_secondary_cleanup_note(error)
             raise error
