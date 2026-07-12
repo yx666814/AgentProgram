@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
-import psutil
+import psutil  # type: ignore[import-untyped]
 import pytest
 
 from agent_platform.infrastructure.workers.supervisor import (
@@ -25,6 +25,15 @@ class _FakeClock:
 
     def advance(self, duration: timedelta) -> None:
         self.now += duration
+
+
+class _SteppingClock:
+    def __init__(self) -> None:
+        self._now = datetime(2026, 1, 1, tzinfo=UTC)
+
+    def __call__(self) -> datetime:
+        self._now += timedelta(seconds=1)
+        return self._now
 
 
 async def _terminate_process(process: asyncio.subprocess.Process) -> None:
@@ -49,6 +58,14 @@ async def _wait_for_child_pid(path: Path) -> int:
             return int(raw_pid)
         await asyncio.sleep(0.01)
     raise AssertionError("child PID fixture was not published")
+
+
+async def _wait_for_pid_exit(pid: int) -> None:
+    for _ in range(200):
+        if not psutil.pid_exists(pid):
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("child process survived worker cleanup")
 
 
 def _read_text_if_present(path: Path) -> str | None:
@@ -84,6 +101,28 @@ async def test_supervisor_starts_pings_and_stops_real_worker() -> None:
 
         assert handle.process.returncode == 0
         assert supervisor.get(handle.worker_id) is None
+    finally:
+        await supervisor.stop_all()
+
+
+async def test_supervisor_passes_canonical_worker_id_to_process(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spawn_arguments: list[tuple[object, ...]] = []
+    real_spawn = asyncio.create_subprocess_exec
+
+    async def recording_spawn(*args: object, **kwargs: object) -> asyncio.subprocess.Process:
+        spawn_arguments.append(args)
+        return await real_spawn(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", recording_spawn)
+    supervisor = WorkerSupervisor(heartbeat_timeout=timedelta(seconds=10))
+    handle = await supervisor.start("project_canonical_identity")
+
+    try:
+        worker_id_index = spawn_arguments[0].index("--worker-id") + 1
+        assert spawn_arguments[0][worker_id_index] == handle.worker_id
+        assert (await supervisor.ping(handle.worker_id)).payload == {"status": "ok"}
     finally:
         await supervisor.stop_all()
 
@@ -208,6 +247,143 @@ async def test_protocol_corruption_fails_pending_and_terminates_worker() -> None
         assert handle.pending == {}
         assert supervisor.get(handle.worker_id) is None
         assert handle.process.returncode is not None
+    finally:
+        await supervisor.stop_all()
+        await _terminate_process(handle.process)
+
+
+async def test_replayed_response_fails_second_pending_and_removes_worker() -> None:
+    supervisor = WorkerSupervisor(heartbeat_timeout=timedelta(seconds=10))
+    handle = await supervisor.start(
+        "project_response_replay",
+        "tests.fixtures.invalid_inbound_worker",
+    )
+
+    try:
+        first = await supervisor.send(
+            handle.worker_id,
+            "command",
+            {"name": "first"},
+            timeout_seconds=1.0,
+        )
+        assert first.payload == {"status": "response_1"}
+
+        with pytest.raises(WorkerProtocolError, match="protocol failed"):
+            await supervisor.send(
+                handle.worker_id,
+                "command",
+                {"name": "second"},
+                timeout_seconds=1.0,
+            )
+        await handle.reader_task
+
+        assert handle.pending == {}
+        assert handle.process.returncode is not None
+        assert supervisor.get(handle.worker_id) is None
+    finally:
+        await supervisor.stop_all()
+        await _terminate_process(handle.process)
+
+
+async def test_skipped_response_sequence_is_protocol_error() -> None:
+    supervisor = WorkerSupervisor(heartbeat_timeout=timedelta(seconds=10))
+    handle = await supervisor.start(
+        "project_response_skipped",
+        "tests.fixtures.invalid_inbound_worker",
+    )
+
+    try:
+        with pytest.raises(WorkerProtocolError, match="protocol failed"):
+            await supervisor.send(
+                handle.worker_id,
+                "command",
+                {"name": "skip"},
+                timeout_seconds=1.0,
+            )
+        await handle.reader_task
+
+        assert handle.pending == {}
+        assert handle.process.returncode is not None
+        assert supervisor.get(handle.worker_id) is None
+    finally:
+        await supervisor.stop_all()
+        await _terminate_process(handle.process)
+
+
+async def test_repeated_heartbeat_cannot_refresh_liveness() -> None:
+    clock = _SteppingClock()
+    supervisor = WorkerSupervisor(
+        heartbeat_timeout=timedelta(seconds=10),
+        clock=clock,
+    )
+    handle = await supervisor.start(
+        "project_heartbeat_repeat",
+        "tests.fixtures.invalid_inbound_worker",
+    )
+    started_at = handle.last_heartbeat_at
+
+    try:
+        for _ in range(200):
+            if handle.last_heartbeat_at > started_at:
+                break
+            await asyncio.sleep(0.01)
+        else:
+            raise AssertionError("first heartbeat was not processed")
+        accepted_at = handle.last_heartbeat_at
+
+        with pytest.raises(WorkerProtocolError, match="protocol failed"):
+            await supervisor.send(
+                handle.worker_id,
+                "command",
+                {"name": "repeat_heartbeat"},
+                timeout_seconds=1.0,
+            )
+        await handle.reader_task
+
+        assert handle.last_heartbeat_at == accepted_at
+        assert handle.process.returncode is not None
+        assert supervisor.get(handle.worker_id) is None
+    finally:
+        await supervisor.stop_all()
+        await _terminate_process(handle.process)
+
+
+@pytest.mark.parametrize(
+    "mode",
+    [
+        "heartbeat_forged",
+        "heartbeat_bool",
+        "heartbeat_empty_task",
+        "heartbeat_future",
+        "heartbeat_secret",
+    ],
+)
+async def test_invalid_heartbeat_schema_cannot_refresh_liveness(mode: str) -> None:
+    clock = _SteppingClock()
+    supervisor = WorkerSupervisor(
+        heartbeat_timeout=timedelta(seconds=10),
+        clock=clock,
+    )
+    handle = await supervisor.start(
+        f"project_{mode}",
+        "tests.fixtures.invalid_inbound_worker",
+    )
+    started_at = handle.last_heartbeat_at
+
+    try:
+        with pytest.raises(WorkerProtocolError, match="protocol failed") as raised:
+            await supervisor.send(
+                handle.worker_id,
+                "command",
+                {"name": "invalid_heartbeat"},
+                timeout_seconds=1.0,
+            )
+        await handle.reader_task
+
+        assert "SECRET_HEARTBEAT_PAYLOAD" not in str(raised.value)
+        assert handle.last_heartbeat_at == started_at
+        assert handle.process.returncode is not None
+        assert supervisor.get(handle.worker_id) is None
     finally:
         await supervisor.stop_all()
         await _terminate_process(handle.process)
@@ -384,16 +560,23 @@ async def test_graceful_stop_cleans_child_after_parent_exits_zero() -> None:
     project_id = f"graceful_tree_{uuid4().hex}"
     pid_path = _child_pid_path(project_id)
     pid_path.unlink(missing_ok=True)
-    handle = await supervisor.start(project_id, "tests.fixtures.child_worker")
+    handle = await supervisor.start(project_id, "tests.fixtures.shutdown_child_worker")
+    started_at = handle.last_heartbeat_at
     child_pid: int | None = None
 
     try:
-        child_pid = await _wait_for_child_pid(pid_path)
+        for _ in range(200):
+            if handle.last_heartbeat_at > started_at:
+                break
+            await asyncio.sleep(0.01)
+        else:
+            raise AssertionError("shutdown-child fixture did not become ready")
 
         await supervisor.stop(handle.worker_id)
+        child_pid = await _wait_for_child_pid(pid_path)
 
         assert handle.process.returncode == 0
-        assert not psutil.pid_exists(child_pid)
+        await _wait_for_pid_exit(child_pid)
     finally:
         await supervisor.stop_all()
         await _terminate_process(handle.process)
@@ -420,7 +603,7 @@ async def test_unexpected_stdout_eof_cleans_parent_and_child() -> None:
 
         assert supervisor.get(handle.worker_id) is None
         assert handle.process.returncode is not None
-        assert not psutil.pid_exists(child_pid)
+        await _wait_for_pid_exit(child_pid)
     finally:
         await supervisor.stop_all()
         await _terminate_process(handle.process)

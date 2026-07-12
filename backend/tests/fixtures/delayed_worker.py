@@ -16,6 +16,7 @@ def _write(message: IpcMessage) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--project-id", required=True)
+    parser.add_argument("--worker-id", required=True)
     args = parser.parse_args()
     decoder = FrameDecoder()
     sequence = 0

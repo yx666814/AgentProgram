@@ -164,6 +164,24 @@ async def test_worker_sends_heartbeat_after_interval_with_first_sequence() -> No
     assert shutdown_response.sequence == 2
 
 
+async def test_worker_heartbeat_uses_injected_worker_id() -> None:
+    process = await _start_worker(
+        "--worker-id",
+        "worker_canonical",
+        "--heartbeat-interval",
+        "0.05",
+    )
+    decoder = FrameDecoder()
+    pending: list[IpcMessage] = []
+    try:
+        heartbeat = await _read_next_message(process, decoder, pending)
+    finally:
+        await _terminate_process(process)
+
+    assert heartbeat.type == "heartbeat"
+    assert heartbeat.payload["worker_id"] == "worker_canonical"
+
+
 async def test_worker_acknowledges_cancel_as_cancelled() -> None:
     process = await _start_worker("--heartbeat-interval", "60")
     decoder = FrameDecoder()

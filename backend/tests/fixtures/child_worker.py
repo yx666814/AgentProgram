@@ -13,6 +13,7 @@ def child_pid_path(project_id: str) -> Path:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--project-id", required=True)
+    parser.add_argument("--worker-id", required=True)
     args = parser.parse_args()
     child = subprocess.Popen(  # noqa: S603
         [sys.executable, "-c", "import time; time.sleep(60)"],

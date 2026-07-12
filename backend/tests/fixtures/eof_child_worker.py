@@ -9,6 +9,7 @@ from tests.fixtures.child_worker import child_pid_path
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--project-id", required=True)
+    parser.add_argument("--worker-id")
     args = parser.parse_args()
     child = subprocess.Popen(  # noqa: S603
         [sys.executable, "-c", "import time; time.sleep(60)"],
@@ -18,8 +19,6 @@ def main() -> int:
     )
     child_pid_path(args.project_id).write_text(str(child.pid), encoding="ascii")
     os.close(sys.stdout.buffer.fileno())
-    while os.read(sys.stdin.buffer.fileno(), 65536):
-        pass
     return 0
 
 

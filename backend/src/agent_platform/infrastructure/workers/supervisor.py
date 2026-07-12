@@ -1,4 +1,5 @@
 import asyncio
+import os
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -11,6 +12,8 @@ from agent_platform.domain.shared.ids import new_id
 from agent_platform.infrastructure.async_cleanup import await_cancellation_resistant
 from agent_platform.interfaces.ipc.framing import FrameDecoder, FramingError, encode_frame
 from agent_platform.interfaces.ipc.messages import IpcMessage, MessageType
+
+from .windows_job import WindowsJob
 
 
 class WorkerError(RuntimeError):
@@ -83,6 +86,9 @@ class WorkerHandle:
     outbound_sequence: int
     last_heartbeat_at: datetime
     pending: dict[str, asyncio.Future[IpcMessage]]
+    job: WindowsJob | None = field(default=None, repr=False)
+    last_inbound_sequence: int = 0
+    seen_inbound_message_ids: set[str] = field(default_factory=set, repr=False)
     reader_task: asyncio.Task[None] = field(init=False, repr=False)
     _stderr_task: asyncio.Task[None] = field(init=False, repr=False)
     _write_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
@@ -121,27 +127,34 @@ class WorkerSupervisor:
             if project_id in self._projects:
                 raise WorkerError("worker already active for project")
             process: asyncio.subprocess.Process | None = None
+            job: WindowsJob | None = None
             reader_task: asyncio.Task[None] | None = None
             stderr_task: asyncio.Task[None] | None = None
             try:
+                worker_id = new_id("worker")
                 process = await asyncio.create_subprocess_exec(
                     sys.executable,
                     "-m",
                     worker_module,
                     "--project-id",
                     project_id,
+                    "--worker-id",
+                    worker_id,
                     stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
+                if os.name == "nt":
+                    job = WindowsJob.create_for_process(process.pid)
                 handle = WorkerHandle(
-                    worker_id=new_id("worker"),
+                    worker_id=worker_id,
                     project_id=project_id,
                     process=process,
                     decoder=FrameDecoder(),
                     outbound_sequence=0,
                     last_heartbeat_at=self._clock(),
                     pending={},
+                    job=job,
                 )
                 reader_task = asyncio.create_task(self._read_stdout(handle))
                 handle.reader_task = reader_task
@@ -153,7 +166,7 @@ class WorkerSupervisor:
             except BaseException as error:
                 if process is not None:
                     await await_cancellation_resistant(
-                        self._cleanup_partial_start(process, reader_task, stderr_task)
+                        self._cleanup_partial_start(process, reader_task, stderr_task, job)
                     )
                 if isinstance(error, (asyncio.CancelledError, KeyboardInterrupt, SystemExit)):
                     raise
@@ -236,6 +249,7 @@ class WorkerSupervisor:
                 await self._terminate_process_tree(handle.process)
         finally:
             await asyncio.to_thread(_terminate_psutil_processes, descendants)
+            await self._close_job(handle)
             handle.reader_task.cancel()
             handle._stderr_task.cancel()
             await asyncio.gather(
@@ -379,8 +393,7 @@ class WorkerSupervisor:
         try:
             while chunk := await reader.read(65536):
                 for message in handle.decoder.feed(chunk):
-                    if message.project_id != handle.project_id:
-                        raise FramingError("worker message project mismatch")
+                    self._validate_inbound_message(handle, message)
                     if message.type == "heartbeat":
                         handle.last_heartbeat_at = self._clock()
                     if message.type in {"ack", "response"} and message.correlation_id:
@@ -406,6 +419,36 @@ class WorkerSupervisor:
                     WorkerUnavailableError("worker is unavailable"),
                 )
 
+    @staticmethod
+    def _validate_inbound_message(handle: WorkerHandle, message: IpcMessage) -> None:
+        expected_sequence = handle.last_inbound_sequence + 1
+        if message.sequence != expected_sequence:
+            raise FramingError("worker message sequence mismatch")
+        if message.message_id in handle.seen_inbound_message_ids:
+            raise FramingError("worker message replayed")
+        if message.project_id != handle.project_id:
+            raise FramingError("worker message project mismatch")
+        if message.type == "heartbeat":
+            WorkerSupervisor._validate_heartbeat(handle, message)
+
+        handle.last_inbound_sequence = message.sequence
+        handle.seen_inbound_message_ids.add(message.message_id)
+
+    @staticmethod
+    def _validate_heartbeat(handle: WorkerHandle, message: IpcMessage) -> None:
+        payload = message.payload
+        if set(payload) != {"worker_id", "active_task", "last_sequence"}:
+            raise FramingError("worker heartbeat schema invalid")
+        worker_id = payload["worker_id"]
+        active_task = payload["active_task"]
+        last_sequence = payload["last_sequence"]
+        if type(worker_id) is not str or worker_id != handle.worker_id:
+            raise FramingError("worker heartbeat identity mismatch")
+        if active_task is not None and (type(active_task) is not str or not active_task):
+            raise FramingError("worker heartbeat active task invalid")
+        if type(last_sequence) is not int or last_sequence < 0 or last_sequence > message.sequence:
+            raise FramingError("worker heartbeat sequence invalid")
+
     async def _handle_reader_failure(
         self,
         handle: WorkerHandle,
@@ -424,9 +467,12 @@ class WorkerSupervisor:
         try:
             await self._terminate_process_tree(handle.process)
         finally:
-            handle._stderr_task.cancel()
-            await asyncio.gather(handle._stderr_task, return_exceptions=True)
-            await self._remove_registry(handle)
+            try:
+                await self._close_job(handle)
+            finally:
+                handle._stderr_task.cancel()
+                await asyncio.gather(handle._stderr_task, return_exceptions=True)
+                await self._remove_registry(handle)
 
     async def _drain_stderr(self, handle: WorkerHandle) -> None:
         reader = handle.process.stderr
@@ -455,11 +501,17 @@ class WorkerSupervisor:
         process: asyncio.subprocess.Process,
         reader_task: asyncio.Task[None] | None,
         stderr_task: asyncio.Task[None] | None,
+        job: WindowsJob | None,
     ) -> None:
         tasks = [task for task in (reader_task, stderr_task) if task is not None]
         for task in tasks:
             task.cancel()
         await self._terminate_process_tree(process)
+        if job is not None:
+            try:
+                await asyncio.to_thread(job.close)
+            except OSError:
+                pass
         writer = process.stdin
         if writer is not None:
             writer.close()
@@ -505,3 +557,13 @@ class WorkerSupervisor:
         async with self._registry_lock:
             if self._workers.get(handle.worker_id) is handle:
                 del self._workers[handle.worker_id]
+
+    @staticmethod
+    async def _close_job(handle: WorkerHandle) -> None:
+        job = handle.job
+        if job is None:
+            return
+        try:
+            await asyncio.to_thread(job.close)
+        except OSError:
+            pass

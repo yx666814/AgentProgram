@@ -44,6 +44,7 @@ def _heartbeat_interval(value: str) -> float:
 def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser = _StderrArgumentParser(description="Run one isolated project worker")
     parser.add_argument("--project-id", required=True, type=_project_id)
+    parser.add_argument("--worker-id", type=_project_id)
     parser.add_argument("--heartbeat-interval", type=_heartbeat_interval, default=5.0)
     return parser.parse_args(argv)
 
@@ -121,10 +122,15 @@ class _DaemonStdinReader:
 
 
 class _WorkerProtocol:
-    def __init__(self, project_id: str, heartbeat_interval: float) -> None:
+    def __init__(
+        self,
+        project_id: str,
+        heartbeat_interval: float,
+        worker_id: str | None = None,
+    ) -> None:
         self._project_id = project_id
         self._heartbeat_interval = heartbeat_interval
-        self._worker_id = new_id("worker")
+        self._worker_id = worker_id or new_id("worker")
         self._outbound_sequence = 0
         self._last_input_sequence = 0
         self._write_lock = asyncio.Lock()
@@ -281,9 +287,13 @@ class _WorkerProtocol:
             await self._stop_heartbeat()
 
 
-async def _run(project_id: str, heartbeat_interval: float) -> int:
+async def _run(
+    project_id: str,
+    heartbeat_interval: float,
+    worker_id: str | None = None,
+) -> int:
     try:
-        return await _WorkerProtocol(project_id, heartbeat_interval).run()
+        return await _WorkerProtocol(project_id, heartbeat_interval, worker_id).run()
     except _WorkerInputProtocolError:
         _safe_stderr("protocol error", FramingError)
         return 2
@@ -297,7 +307,7 @@ async def _run(project_id: str, heartbeat_interval: float) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
-    return asyncio.run(_run(args.project_id, args.heartbeat_interval))
+    return asyncio.run(_run(args.project_id, args.heartbeat_interval, args.worker_id))
 
 
 if __name__ == "__main__":

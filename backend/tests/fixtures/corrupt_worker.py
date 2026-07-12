@@ -6,6 +6,7 @@ import sys
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--project-id", required=True)
+    parser.add_argument("--worker-id", required=True)
     parser.parse_args()
     if not os.read(sys.stdin.buffer.fileno(), 1):
         return 0
