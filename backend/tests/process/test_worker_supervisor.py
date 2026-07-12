@@ -12,7 +12,6 @@ import psutil  # type: ignore[import-untyped]
 import pytest
 from tests.fixtures.atomic_job_chain_worker import atomic_job_chain_paths
 
-import agent_platform.infrastructure.workers.windows_spawn as windows_spawn_module
 from agent_platform.infrastructure.workers.supervisor import (
     WorkerError,
     WorkerProtocolError,
@@ -21,6 +20,9 @@ from agent_platform.infrastructure.workers.supervisor import (
     WorkerUnavailableError,
 )
 from agent_platform.infrastructure.workers.windows_job import WindowsJob, WindowsStartGate
+
+if os.name == "nt":
+    import agent_platform.infrastructure.workers.windows_spawn as windows_spawn_module
 
 
 @dataclass(frozen=True)
@@ -180,6 +182,7 @@ async def test_supervisor_starts_pings_and_stops_real_worker() -> None:
         await supervisor.stop_all()
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows atomic spawn only")
 async def test_supervisor_passes_canonical_worker_id_to_process(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -737,6 +740,7 @@ async def test_unexpected_stdout_eof_cleans_parent_and_child() -> None:
         pid_path.unlink(missing_ok=True)
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows atomic spawn only")
 async def test_start_failure_after_spawn_reaps_process(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

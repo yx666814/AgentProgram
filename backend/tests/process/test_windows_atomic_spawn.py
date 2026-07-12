@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import ctypes
 import gc
@@ -12,17 +14,21 @@ import psutil  # type: ignore[import-untyped]
 import pytest
 
 import agent_platform.infrastructure.workers.supervisor as supervisor_module
-import agent_platform.infrastructure.workers.windows_create_process as create_process_module
-import agent_platform.infrastructure.workers.windows_spawn as windows_spawn_module
 from agent_platform.infrastructure.workers.supervisor import (
     WorkerSupervisor,
     WorkerUnavailableError,
 )
-from agent_platform.infrastructure.workers.windows_create_process import CreatedWindowsProcess
 from agent_platform.infrastructure.workers.windows_job import WindowsJob
-from agent_platform.infrastructure.workers.windows_spawn import (
-    create_windows_job_subprocess_exec,
-)
+
+if os.name == "nt":
+    import agent_platform.infrastructure.workers.windows_create_process as create_process_module
+    import agent_platform.infrastructure.workers.windows_spawn_impl as windows_spawn_module
+    from agent_platform.infrastructure.workers.windows_create_process import (
+        CreatedWindowsProcess,
+    )
+    from agent_platform.infrastructure.workers.windows_spawn import (
+        create_windows_job_subprocess_exec,
+    )
 
 pytestmark = pytest.mark.skipif(os.name != "nt", reason="Windows atomic Job spawn only")
 
