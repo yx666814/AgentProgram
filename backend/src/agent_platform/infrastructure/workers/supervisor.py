@@ -306,7 +306,12 @@ class WorkerSupervisor:
         if not handles:
             return
         stop_tasks = [await self._ensure_stop_task(handle, graceful=True) for handle in handles]
-        await await_cancellation_resistant(asyncio.gather(*stop_tasks))
+        results = await await_cancellation_resistant(
+            asyncio.gather(*stop_tasks, return_exceptions=True)
+        )
+        for result in results:
+            if isinstance(result, BaseException):
+                raise result
 
     async def watch_once(self) -> None:
         now = self._clock()

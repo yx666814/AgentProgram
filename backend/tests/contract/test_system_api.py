@@ -15,7 +15,8 @@ from pydantic_core import PydanticCustomError
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
 
-import agent_platform.bootstrap.app_factory as app_factory_module
+import agent_platform
+import agent_platform.bootstrap.lifespan as lifespan_module
 from agent_platform.bootstrap.app_factory import create_app
 from agent_platform.config.settings import Settings
 from agent_platform.domain.shared.errors import DomainError
@@ -107,6 +108,37 @@ async def test_health_accepts_exact_local_bearer_token(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+@pytest.mark.asyncio
+async def test_system_info_returns_backend_and_protocol_versions(tmp_path: Path) -> None:
+    app = create_app(_settings(tmp_path))
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.get("/api/v1/system/info", headers=AUTHORIZATION)
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "backend_version": agent_platform.__version__,
+        "protocol_version": 1,
+    }
+
+
+@pytest.mark.asyncio
+async def test_system_info_requires_local_session(tmp_path: Path) -> None:
+    app = create_app(_settings(tmp_path))
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.get("/api/v1/system/info")
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "auth.invalid_session"
 
 
 @pytest.mark.asyncio
@@ -280,14 +312,36 @@ async def test_lifespan_disposal_resists_repeated_cancellation(
     allow_dispose = asyncio.Event()
     dispose_completed = asyncio.Event()
 
+    class ProbeConnection:
+        async def __aenter__(self) -> "ProbeConnection":
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            pass
+
+        async def execute(self, _: object) -> None:
+            pass
+
+    class ProbeEngine:
+        def connect(self) -> ProbeConnection:
+            return ProbeConnection()
+
     class ControlledDatabase:
+        engine = ProbeEngine()
+
         async def dispose(self) -> None:
             dispose_started.set()
             await allow_dispose.wait()
             dispose_completed.set()
 
+    class ControlledSupervisor:
+        async def stop_all(self) -> None:
+            pass
+
     database = ControlledDatabase()
-    monkeypatch.setattr(app_factory_module, "create_database", lambda _: database)
+    supervisor = ControlledSupervisor()
+    monkeypatch.setattr(lifespan_module, "create_database", lambda _: database)
+    monkeypatch.setattr(lifespan_module, "WorkerSupervisor", lambda **_: supervisor)
     app = create_app(_settings(tmp_path))
     lifespan_entered = asyncio.Event()
 
@@ -304,16 +358,22 @@ async def test_lifespan_disposal_resists_repeated_cancellation(
     lifespan_task.cancel()
     await asyncio.sleep(0)
     escaped_before_dispose = lifespan_task.done()
-    state_removed_before_dispose = not hasattr(app.state, "database")
+    database_state_removed_before_dispose = not hasattr(app.state, "database")
+    worker_state_removed_before_dispose = not hasattr(
+        app.state,
+        "worker_supervisor",
+    )
 
     allow_dispose.set()
     with pytest.raises(asyncio.CancelledError):
         await lifespan_task
 
     assert escaped_before_dispose is False
-    assert state_removed_before_dispose is False
+    assert database_state_removed_before_dispose is False
+    assert worker_state_removed_before_dispose is False
     assert dispose_completed.is_set()
     assert not hasattr(app.state, "database")
+    assert not hasattr(app.state, "worker_supervisor")
 
 
 @pytest.mark.asyncio

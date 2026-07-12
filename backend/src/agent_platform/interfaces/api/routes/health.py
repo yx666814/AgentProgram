@@ -3,6 +3,7 @@ from typing import Literal
 from fastapi import APIRouter, Request, status
 from sqlalchemy import inspect, text
 
+from agent_platform import __version__
 from agent_platform.infrastructure.database.session import Database
 from agent_platform.interfaces.api.errors import PublicHttpError
 
@@ -14,6 +15,11 @@ REQUIRED_DATABASE_TABLES = {"alembic_version", "event_log", "outbox_events"}
 @router.get("/health")
 async def health() -> dict[str, Literal["ok"]]:
     return {"status": "ok"}
+
+
+@router.get("/system/info")
+async def system_info() -> dict[str, str | int]:
+    return {"backend_version": __version__, "protocol_version": 1}
 
 
 @router.get("/readiness")

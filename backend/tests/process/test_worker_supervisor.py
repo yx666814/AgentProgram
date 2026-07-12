@@ -14,6 +14,7 @@ from tests.fixtures.atomic_job_chain_worker import atomic_job_chain_paths
 
 from agent_platform.infrastructure.workers.supervisor import (
     WorkerError,
+    WorkerHandle,
     WorkerProtocolError,
     WorkerSupervisor,
     WorkerTimeoutError,
@@ -595,6 +596,62 @@ async def test_stop_all_finishes_cleanup_before_propagating_cancellation() -> No
         assert all(supervisor.get(handle.worker_id) is None for handle in handles)
     finally:
         await supervisor.stop_all()
+        for handle in handles:
+            await _terminate_process(handle.process)
+
+
+async def test_stop_all_waits_for_every_stop_task_before_propagating_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    supervisor = WorkerSupervisor(
+        heartbeat_timeout=timedelta(seconds=10),
+        shutdown_timeout_seconds=0.1,
+    )
+    handles = [
+        await supervisor.start("project_stop_error_1", "tests.fixtures.silent_worker"),
+        await supervisor.start("project_stop_error_2", "tests.fixtures.silent_worker"),
+    ]
+    first_failed = asyncio.Event()
+    second_started = asyncio.Event()
+    allow_second = asyncio.Event()
+    second_finished = asyncio.Event()
+    original_stop_handle = supervisor._stop_handle
+
+    async def controlled_stop_handle(
+        handle: WorkerHandle,
+        *,
+        graceful: bool,
+    ) -> None:
+        if handle is handles[0]:
+            await original_stop_handle(handle, graceful=graceful)
+            first_failed.set()
+            raise RuntimeError("worker stop failed")
+        second_started.set()
+        await allow_second.wait()
+        await original_stop_handle(handle, graceful=graceful)
+        second_finished.set()
+
+    monkeypatch.setattr(supervisor, "_stop_handle", controlled_stop_handle)
+    stop_all_task = asyncio.create_task(supervisor.stop_all())
+
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(first_failed.wait(), second_started.wait()),
+            timeout=2.0,
+        )
+
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(asyncio.shield(stop_all_task), timeout=0.05)
+
+        allow_second.set()
+        with pytest.raises(RuntimeError, match="worker stop failed"):
+            await stop_all_task
+
+        assert second_finished.is_set()
+        assert all(handle.process.returncode is not None for handle in handles)
+    finally:
+        allow_second.set()
+        await asyncio.gather(supervisor.stop_all(), return_exceptions=True)
         for handle in handles:
             await _terminate_process(handle.process)
 
