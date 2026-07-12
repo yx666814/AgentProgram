@@ -163,21 +163,20 @@ class WorkerSupervisor:
                         worker_module,
                         *target_arguments,
                     )
-                spawn_options: dict[str, Any] = {
-                    "stdin": asyncio.subprocess.PIPE,
-                    "stdout": asyncio.subprocess.PIPE,
-                    "stderr": asyncio.subprocess.PIPE,
-                }
                 if os.name == "nt":
-                    from subprocess import CREATE_BREAKAWAY_FROM_JOB
+                    from .windows_spawn import create_windows_job_subprocess_exec
 
-                    spawn_options["creationflags"] = CREATE_BREAKAWAY_FROM_JOB
-                process = await asyncio.create_subprocess_exec(
-                    *process_arguments,
-                    **spawn_options,
-                )
+                    if job is None:
+                        raise OSError("Windows worker Job Object is unavailable")
+                    process = await create_windows_job_subprocess_exec(job, *process_arguments)
+                else:
+                    process = await asyncio.create_subprocess_exec(
+                        *process_arguments,
+                        stdin=asyncio.subprocess.PIPE,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
                 if job is not None and start_gate is not None:
-                    job.assign_process(process.pid)
                     await self._wait_for_start_gate(start_gate, process)
                     start_gate.release()
                     start_gate.close()
@@ -557,7 +556,7 @@ class WorkerSupervisor:
                 if resource is None:
                     continue
                 try:
-                    await asyncio.to_thread(resource.close)
+                    resource.close()
                 except OSError:
                     pass
         if process is not None:
@@ -629,6 +628,6 @@ class WorkerSupervisor:
         if job is None:
             return
         try:
-            await asyncio.to_thread(job.close)
+            job.close()
         except OSError:
             pass

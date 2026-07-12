@@ -1,17 +1,19 @@
 import asyncio
 import ctypes
 import os
-import subprocess
 import sys
 import tempfile
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
 import psutil  # type: ignore[import-untyped]
 import pytest
+from tests.fixtures.atomic_job_chain_worker import atomic_job_chain_paths
 
+import agent_platform.infrastructure.workers.windows_spawn as windows_spawn_module
 from agent_platform.infrastructure.workers.supervisor import (
     WorkerError,
     WorkerProtocolError,
@@ -20,6 +22,13 @@ from agent_platform.infrastructure.workers.supervisor import (
     WorkerUnavailableError,
 )
 from agent_platform.infrastructure.workers.windows_job import WindowsJob, WindowsStartGate
+
+
+@dataclass(frozen=True)
+class _ProcessIdentity:
+    role: str
+    pid: int
+    create_time: float
 
 
 class _FakeClock:
@@ -70,6 +79,16 @@ async def _wait_for_child_pid(path: Path) -> int:
     raise AssertionError("child PID fixture was not published")
 
 
+async def _wait_for_pid_pair(path: Path) -> tuple[int, int]:
+    for _ in range(200):
+        raw_pid_pair = await asyncio.to_thread(_read_text_if_present, path)
+        if raw_pid_pair:
+            first_pid, second_pid = raw_pid_pair.split("|", maxsplit=1)
+            return int(first_pid), int(second_pid)
+        await asyncio.sleep(0.01)
+    raise AssertionError("process chain fixture was not published")
+
+
 async def _wait_for_pid_exit(pid: int) -> None:
     for _ in range(200):
         if not psutil.pid_exists(pid):
@@ -92,6 +111,53 @@ def _kill_pid_if_alive(pid: int) -> None:
         process.wait(timeout=1)
     except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.TimeoutExpired):
         pass
+
+
+def _capture_process_identity(role: str, pid: int) -> _ProcessIdentity:
+    process = psutil.Process(pid)
+    return _ProcessIdentity(role=role, pid=pid, create_time=process.create_time())
+
+
+def _identity_is_alive(identity: _ProcessIdentity) -> bool:
+    try:
+        process = psutil.Process(identity.pid)
+        return process.create_time() == identity.create_time and process.is_running()
+    except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
+        return False
+
+
+def _surviving_identities(
+    identities: tuple[_ProcessIdentity, ...],
+) -> tuple[_ProcessIdentity, ...]:
+    return tuple(identity for identity in identities if _identity_is_alive(identity))
+
+
+async def _wait_for_identity_exit(
+    identities: tuple[_ProcessIdentity, ...],
+) -> tuple[_ProcessIdentity, ...]:
+    for _ in range(200):
+        survivors = await asyncio.to_thread(_surviving_identities, identities)
+        if not survivors:
+            return ()
+        await asyncio.sleep(0.01)
+    return await asyncio.to_thread(_surviving_identities, identities)
+
+
+def _kill_process_identities(identities: tuple[_ProcessIdentity, ...]) -> None:
+    for identity in reversed(identities):
+        try:
+            process = psutil.Process(identity.pid)
+            if process.create_time() != identity.create_time:
+                continue
+            process.kill()
+            process.wait(timeout=1)
+        except (
+            psutil.AccessDenied,
+            psutil.NoSuchProcess,
+            psutil.TimeoutExpired,
+            psutil.ZombieProcess,
+        ):
+            pass
 
 
 async def test_supervisor_starts_pings_and_stops_real_worker() -> None:
@@ -119,13 +185,20 @@ async def test_supervisor_passes_canonical_worker_id_to_process(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     spawn_arguments: list[tuple[object, ...]] = []
-    real_spawn = asyncio.create_subprocess_exec
+    real_spawn = windows_spawn_module.create_windows_job_subprocess_exec
 
-    async def recording_spawn(*args: object, **kwargs: object) -> asyncio.subprocess.Process:
+    async def recording_spawn(
+        job: WindowsJob,
+        *args: str,
+    ) -> asyncio.subprocess.Process:
         spawn_arguments.append(args)
-        return await real_spawn(*args, **kwargs)  # type: ignore[arg-type]
+        return await real_spawn(job, *args)
 
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", recording_spawn)
+    monkeypatch.setattr(
+        windows_spawn_module,
+        "create_windows_job_subprocess_exec",
+        recording_spawn,
+    )
     supervisor = WorkerSupervisor(heartbeat_timeout=timedelta(seconds=10))
     handle = await supervisor.start("project_canonical_identity")
 
@@ -669,17 +742,24 @@ async def test_start_failure_after_spawn_reaps_process(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     spawned: list[asyncio.subprocess.Process] = []
-    real_spawn = asyncio.create_subprocess_exec
+    real_spawn = windows_spawn_module.create_windows_job_subprocess_exec
 
-    async def recording_spawn(*args: object, **kwargs: object) -> asyncio.subprocess.Process:
-        process = await real_spawn(*args, **kwargs)  # type: ignore[arg-type]
+    async def recording_spawn(
+        job: WindowsJob,
+        *args: str,
+    ) -> asyncio.subprocess.Process:
+        process = await real_spawn(job, *args)
         spawned.append(process)
         return process
 
     def broken_clock() -> datetime:
         raise RuntimeError("SECRET_CLOCK_FAILURE")
 
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", recording_spawn)
+    monkeypatch.setattr(
+        windows_spawn_module,
+        "create_windows_job_subprocess_exec",
+        recording_spawn,
+    )
     supervisor = WorkerSupervisor(
         heartbeat_timeout=timedelta(seconds=10),
         clock=broken_clock,
@@ -697,20 +777,18 @@ async def test_start_failure_after_spawn_reaps_process(
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows Job startup race only")
-async def test_target_cannot_run_before_job_assignment(
+async def test_windows_supervisor_never_uses_post_spawn_job_assignment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    real_assign_process = WindowsJob.assign_process
-    project_id = f"delayed_assign_{uuid4().hex}"
+    project_id = f"no_post_assign_{uuid4().hex}"
     path = _import_marker_path(project_id)
     path.unlink(missing_ok=True)
 
-    def delayed_assign_process(self: WindowsJob, pid: int) -> None:
-        time.sleep(0.5)
-        assert not path.exists()
-        real_assign_process(self, pid)
+    def forbidden_assign_process(self: WindowsJob, pid: int) -> None:
+        del self, pid
+        raise AssertionError("post-spawn Job assignment is forbidden")
 
-    monkeypatch.setattr(WindowsJob, "assign_process", delayed_assign_process)
+    monkeypatch.setattr(WindowsJob, "assign_process", forbidden_assign_process)
     supervisor = WorkerSupervisor(heartbeat_timeout=timedelta(seconds=10))
     handle = None
 
@@ -757,19 +835,78 @@ async def test_immediate_child_is_in_exact_job_and_dies_when_job_closes() -> Non
         pid_path.unlink(missing_ok=True)
 
 
-@pytest.mark.skipif(os.name != "nt", reason="Windows Job containment only")
-async def test_breakaway_spawn_denial_is_sanitized_and_closes_start_resources(
+@pytest.mark.skipif(os.name != "nt", reason="Windows atomic Job startup only")
+async def test_real_venv_launcher_chain_is_atomically_contained_by_job(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    spawn_options: list[dict[str, object]] = []
+    real_assign_process = WindowsJob.assign_process
+    assign_calls = 0
+
+    def delayed_assign_process(self: WindowsJob, pid: int) -> None:
+        nonlocal assign_calls
+        assign_calls += 1
+        time.sleep(0.5)
+        real_assign_process(self, pid)
+
+    monkeypatch.setattr(WindowsJob, "assign_process", delayed_assign_process)
+    supervisor = WorkerSupervisor(
+        heartbeat_timeout=timedelta(seconds=10),
+        shutdown_timeout_seconds=0.1,
+    )
+    project_id = f"atomic_job_chain_{uuid4().hex}"
+    target_path, child_interpreter_path = atomic_job_chain_paths(project_id)
+    target_path.unlink(missing_ok=True)
+    child_interpreter_path.unlink(missing_ok=True)
+    handle = None
+    identities: tuple[_ProcessIdentity, ...] = ()
+
+    try:
+        handle = await supervisor.start(project_id, "tests.fixtures.atomic_job_chain_worker")
+        target_pid, child_launcher_pid = await _wait_for_pid_pair(target_path)
+        child_interpreter_pid = await _wait_for_child_pid(child_interpreter_path)
+        identities = (
+            _capture_process_identity("supervisor launcher", handle.process.pid),
+            _capture_process_identity("bootstrap interpreter", target_pid),
+            _capture_process_identity("immediate child launcher", child_launcher_pid),
+            _capture_process_identity("immediate child interpreter", child_interpreter_pid),
+        )
+        assert len({identity.pid for identity in identities}) == 4
+        assert assign_calls == 0
+        assert handle.process.stdin is not None
+        assert not handle.process.stdin.is_closing()
+        assert handle.job is not None
+        membership = {
+            identity.role: handle.job.contains_process(identity.pid) for identity in identities
+        }
+
+        await asyncio.to_thread(handle.job.close)
+
+        survivors = await _wait_for_identity_exit(identities)
+        assert not survivors, (
+            f"processes escaped direct Job close: membership={membership}, survivors={survivors}"
+        )
+        assert all(membership.values()), f"processes were never in the exact Job: {membership}"
+    finally:
+        if identities:
+            await asyncio.to_thread(_kill_process_identities, identities)
+        await supervisor.stop_all()
+        if handle is not None and handle.process.returncode is None:
+            await _terminate_process(handle.process)
+        target_path.unlink(missing_ok=True)
+        child_interpreter_path.unlink(missing_ok=True)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows Job containment only")
+async def test_atomic_spawn_denial_is_sanitized_and_closes_start_resources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     jobs: list[WindowsJob] = []
     gates: list[WindowsStartGate] = []
     real_job_create = WindowsJob.create
     real_gate_create = WindowsStartGate.create
 
-    async def denied_spawn(*args: object, **kwargs: object) -> asyncio.subprocess.Process:
-        del args
-        spawn_options.append(kwargs)
+    async def denied_spawn(job: WindowsJob, *args: str) -> asyncio.subprocess.Process:
+        del job, args
         raise ctypes.WinError(5)
 
     def recording_job_create(cls: type[WindowsJob]) -> WindowsJob:
@@ -784,84 +921,26 @@ async def test_breakaway_spawn_denial_is_sanitized_and_closes_start_resources(
         gates.append(gate)
         return gate
 
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", denied_spawn)
+    monkeypatch.setattr(
+        windows_spawn_module,
+        "create_windows_job_subprocess_exec",
+        denied_spawn,
+    )
     monkeypatch.setattr(WindowsJob, "create", classmethod(recording_job_create))
     monkeypatch.setattr(WindowsStartGate, "create", classmethod(recording_gate_create))
     supervisor = WorkerSupervisor(heartbeat_timeout=timedelta(seconds=10))
 
-    with pytest.raises(WorkerUnavailableError, match="could not be started") as raised:
-        await supervisor.start("project_breakaway_denied")
-
-    assert str(raised.value) == "worker could not be started"
-    assert len(spawn_options) == 1
-    assert spawn_options[0].get("creationflags") == subprocess.CREATE_BREAKAWAY_FROM_JOB
+    try:
+        with pytest.raises(WorkerUnavailableError, match="could not be started") as raised:
+            await supervisor.start("project_atomic_spawn_denied")
+        assert str(raised.value) == "worker could not be started"
+    finally:
+        await supervisor.stop_all()
     assert len(jobs) == 1
     assert jobs[0]._handle is None
     assert len(gates) == 1
     assert gates[0]._handle is None
     assert gates[0]._ready_handle is None
-
-
-@pytest.mark.skipif(os.name != "nt", reason="Windows start gate only")
-async def test_job_assignment_failure_never_runs_target_and_closes_start_handles(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    project_id = f"assign_failure_{uuid4().hex}"
-    path = _import_marker_path(project_id)
-    path.unlink(missing_ok=True)
-    spawned: list[asyncio.subprocess.Process] = []
-    jobs: list[WindowsJob] = []
-    gates: list[WindowsStartGate] = []
-    real_spawn = asyncio.create_subprocess_exec
-    real_job_create = WindowsJob.create
-    real_gate_create = WindowsStartGate.create
-
-    async def recording_spawn(*args: object, **kwargs: object) -> asyncio.subprocess.Process:
-        process = await real_spawn(*args, **kwargs)  # type: ignore[arg-type]
-        spawned.append(process)
-        return process
-
-    def recording_job_create(cls: type[WindowsJob]) -> WindowsJob:
-        del cls
-        job = real_job_create()
-        jobs.append(job)
-        return job
-
-    def recording_gate_create(cls: type[WindowsStartGate]) -> WindowsStartGate:
-        del cls
-        gate = real_gate_create()
-        gates.append(gate)
-        return gate
-
-    def broken_assign(self: WindowsJob, pid: int) -> None:
-        del self, pid
-        time.sleep(0.2)
-        assert not path.exists()
-        raise OSError("SECRET_ASSIGNMENT_FAILURE")
-
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", recording_spawn)
-    monkeypatch.setattr(WindowsJob, "create", classmethod(recording_job_create))
-    monkeypatch.setattr(WindowsStartGate, "create", classmethod(recording_gate_create))
-    monkeypatch.setattr(WindowsJob, "assign_process", broken_assign)
-    supervisor = WorkerSupervisor(heartbeat_timeout=timedelta(seconds=10))
-
-    try:
-        with pytest.raises(WorkerUnavailableError, match="could not be started"):
-            await supervisor.start(project_id, "tests.fixtures.import_marker_worker")
-
-        assert not path.exists()
-        assert len(spawned) == 1
-        assert spawned[0].returncode is not None
-        assert len(jobs) == 1
-        assert jobs[0]._handle is None
-        assert len(gates) == 1
-        assert gates[0]._handle is None
-        assert gates[0]._ready_handle is None
-    finally:
-        await supervisor.stop_all()
-        for process in spawned:
-            await _terminate_process(process)
-        path.unlink(missing_ok=True)
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows start gate only")
@@ -872,10 +951,13 @@ async def test_gate_release_failure_reaps_bootstrap_without_running_target(
     path = _import_marker_path(project_id)
     path.unlink(missing_ok=True)
     spawned: list[asyncio.subprocess.Process] = []
-    real_spawn = asyncio.create_subprocess_exec
+    real_spawn = windows_spawn_module.create_windows_job_subprocess_exec
 
-    async def recording_spawn(*args: object, **kwargs: object) -> asyncio.subprocess.Process:
-        process = await real_spawn(*args, **kwargs)  # type: ignore[arg-type]
+    async def recording_spawn(
+        job: WindowsJob,
+        *args: str,
+    ) -> asyncio.subprocess.Process:
+        process = await real_spawn(job, *args)
         spawned.append(process)
         return process
 
@@ -883,7 +965,11 @@ async def test_gate_release_failure_reaps_bootstrap_without_running_target(
         del self
         raise OSError("SECRET_GATE_RELEASE_FAILURE")
 
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", recording_spawn)
+    monkeypatch.setattr(
+        windows_spawn_module,
+        "create_windows_job_subprocess_exec",
+        recording_spawn,
+    )
     monkeypatch.setattr(WindowsStartGate, "release", broken_release)
     supervisor = WorkerSupervisor(heartbeat_timeout=timedelta(seconds=10))
 

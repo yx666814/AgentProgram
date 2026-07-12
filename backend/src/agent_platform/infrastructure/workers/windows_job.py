@@ -8,6 +8,7 @@ from uuid import uuid4
 
 _ERROR_ALREADY_EXISTS = 183
 _ERROR_INVALID_PARAMETER = 87
+_DUPLICATE_SAME_ACCESS = 0x00000002
 _EVENT_MODIFY_STATE = 0x0002
 _INFINITE = 0xFFFFFFFF
 _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
@@ -75,6 +76,18 @@ def _load_kernel32() -> Any:
         ctypes.c_ulong,
     ]
     kernel32.SetInformationJobObject.restype = ctypes.c_int
+    kernel32.GetCurrentProcess.argtypes = []
+    kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+    kernel32.DuplicateHandle.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.c_ulong,
+        ctypes.c_int,
+        ctypes.c_ulong,
+    ]
+    kernel32.DuplicateHandle.restype = ctypes.c_int
     kernel32.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
     kernel32.OpenProcess.restype = ctypes.c_void_p
     kernel32.AssignProcessToJobObject.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
@@ -110,6 +123,26 @@ def _last_windows_error() -> OSError:
 def _close_raw_handle(kernel32: Any, handle: int) -> None:
     if not kernel32.CloseHandle(handle):
         raise _last_windows_error()
+
+
+class _DuplicatedJobHandle:
+    def __init__(self, kernel32: Any, handle: int) -> None:
+        self._kernel32 = kernel32
+        self._handle: int | None = handle
+
+    @property
+    def value(self) -> int:
+        handle = self._handle
+        if handle is None:
+            raise OSError("duplicated Windows Job handle is closed")
+        return handle
+
+    def close(self) -> None:
+        handle = self._handle
+        if handle is None:
+            return
+        _close_raw_handle(self._kernel32, handle)
+        self._handle = None
 
 
 class WindowsJob:
@@ -169,6 +202,28 @@ class WindowsJob:
                     raise _last_windows_error()
             finally:
                 _close_raw_handle(self._kernel32, process_handle)
+
+    def _duplicate_handle(self) -> _DuplicatedJobHandle:
+        with _WINDOWS_HANDLE_LOCK:
+            handle = self._handle
+            if handle is None:
+                raise OSError("Windows Job Object is closed")
+            current_process = self._kernel32.GetCurrentProcess()
+            duplicate = ctypes.c_void_p()
+            if not self._kernel32.DuplicateHandle(
+                current_process,
+                handle,
+                current_process,
+                ctypes.byref(duplicate),
+                0,
+                False,
+                _DUPLICATE_SAME_ACCESS,
+            ):
+                raise _last_windows_error()
+            duplicate_value = duplicate.value
+            if duplicate_value is None:
+                raise OSError("Windows Job handle could not be duplicated")
+            return _DuplicatedJobHandle(self._kernel32, duplicate_value)
 
     def contains_process(self, pid: int) -> bool:
         """Return whether a live process belongs to this exact Job Object."""
