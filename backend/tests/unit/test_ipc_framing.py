@@ -59,6 +59,27 @@ def test_decoder_reads_two_frames_from_one_chunk() -> None:
     assert FrameDecoder().feed(encode_frame(first) + encode_frame(second)) == [first, second]
 
 
+def test_decoder_rejects_unknown_top_level_field_without_leaking_value() -> None:
+    marker = "SECRET_UNKNOWN_TOP_LEVEL_FIELD"
+    body = json.dumps(
+        {
+            "message_id": "m1",
+            "sequence": 1,
+            "project_id": "p",
+            "type": "heartbeat",
+            "payload": {},
+            "unexpected": marker,
+        }
+    ).encode()
+    frame = f"Content-Length: {len(body)}\r\nProtocol-Version: 1\r\n\r\n".encode() + body
+
+    with pytest.raises(FramingError) as error:
+        FrameDecoder().feed(frame)
+
+    assert str(error.value) == "IPC frame body is invalid"
+    assert marker not in str(error.value)
+
+
 def test_message_rejects_unsupported_protocol_version() -> None:
     with pytest.raises(ValidationError):
         IpcMessage.model_validate(

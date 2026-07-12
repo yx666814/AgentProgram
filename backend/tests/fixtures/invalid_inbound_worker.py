@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import sys
 
@@ -9,6 +10,13 @@ from agent_platform.interfaces.ipc.messages import IpcMessage
 
 def _write(*messages: IpcMessage) -> None:
     sys.stdout.buffer.write(b"".join(encode_frame(message) for message in messages))
+    sys.stdout.buffer.flush()
+
+
+def _write_raw(message: dict[str, object]) -> None:
+    body = json.dumps(message, separators=(",", ":")).encode()
+    header = f"Content-Length: {len(body)}\r\nProtocol-Version: 1\r\n\r\n".encode()
+    sys.stdout.buffer.write(header + body)
     sys.stdout.buffer.flush()
 
 
@@ -94,6 +102,33 @@ def main() -> int:
                         type="ack",
                         payload={"status": "skipped"},
                     )
+                )
+                continue
+
+            if mode == "heartbeat_top_level_extra":
+                _write_raw(
+                    {
+                        "message_id": new_id("msg"),
+                        "sequence": 1,
+                        "project_id": args.project_id,
+                        "type": "heartbeat",
+                        "payload": _heartbeat_payload(mode, args.worker_id),
+                        "unexpected": "SECRET_UNKNOWN_TOP_LEVEL_FIELD",
+                    }
+                )
+                continue
+
+            if mode == "response_top_level_extra":
+                _write_raw(
+                    {
+                        "message_id": new_id("msg"),
+                        "correlation_id": message.message_id,
+                        "sequence": 1,
+                        "project_id": args.project_id,
+                        "type": "ack",
+                        "payload": {"status": "must_not_resolve"},
+                        "unexpected": "SECRET_UNKNOWN_TOP_LEVEL_FIELD",
+                    }
                 )
                 continue
 

@@ -13,7 +13,9 @@ from agent_platform.infrastructure.async_cleanup import await_cancellation_resis
 from agent_platform.interfaces.ipc.framing import FrameDecoder, FramingError, encode_frame
 from agent_platform.interfaces.ipc.messages import IpcMessage, MessageType
 
-from .windows_job import WindowsJob
+from .windows_job import WindowsJob, WindowsStartGate
+
+_WINDOWS_START_GATE_TIMEOUT_SECONDS = 5.0
 
 
 class WorkerError(RuntimeError):
@@ -128,24 +130,51 @@ class WorkerSupervisor:
                 raise WorkerError("worker already active for project")
             process: asyncio.subprocess.Process | None = None
             job: WindowsJob | None = None
+            start_gate: WindowsStartGate | None = None
             reader_task: asyncio.Task[None] | None = None
             stderr_task: asyncio.Task[None] | None = None
             try:
                 worker_id = new_id("worker")
-                process = await asyncio.create_subprocess_exec(
-                    sys.executable,
-                    "-m",
-                    worker_module,
+                target_arguments = (
                     "--project-id",
                     project_id,
                     "--worker-id",
                     worker_id,
+                )
+                process_arguments: tuple[str, ...]
+                if os.name == "nt":
+                    job = WindowsJob.create()
+                    start_gate = WindowsStartGate.create()
+                    process_arguments = (
+                        sys.executable,
+                        "-m",
+                        "agent_platform.workers.bootstrap",
+                        "--start-gate",
+                        start_gate.name,
+                        "--target-module",
+                        worker_module,
+                        "--",
+                        *target_arguments,
+                    )
+                else:
+                    process_arguments = (
+                        sys.executable,
+                        "-m",
+                        worker_module,
+                        *target_arguments,
+                    )
+                process = await asyncio.create_subprocess_exec(
+                    *process_arguments,
                     stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                if os.name == "nt":
-                    job = WindowsJob.create_for_process(process.pid)
+                if job is not None and start_gate is not None:
+                    job.assign_process(process.pid)
+                    await self._wait_for_start_gate(start_gate, process)
+                    start_gate.release()
+                    start_gate.close()
+                    start_gate = None
                 handle = WorkerHandle(
                     worker_id=worker_id,
                     project_id=project_id,
@@ -164,9 +193,15 @@ class WorkerSupervisor:
                 self._projects[project_id] = handle
                 return handle
             except BaseException as error:
-                if process is not None:
+                if process is not None or job is not None or start_gate is not None:
                     await await_cancellation_resistant(
-                        self._cleanup_partial_start(process, reader_task, stderr_task, job)
+                        self._cleanup_partial_start(
+                            process,
+                            reader_task,
+                            stderr_task,
+                            job,
+                            start_gate,
+                        )
                     )
                 if isinstance(error, (asyncio.CancelledError, KeyboardInterrupt, SystemExit)):
                     raise
@@ -498,29 +533,52 @@ class WorkerSupervisor:
 
     async def _cleanup_partial_start(
         self,
-        process: asyncio.subprocess.Process,
+        process: asyncio.subprocess.Process | None,
         reader_task: asyncio.Task[None] | None,
         stderr_task: asyncio.Task[None] | None,
         job: WindowsJob | None,
+        start_gate: WindowsStartGate | None,
     ) -> None:
         tasks = [task for task in (reader_task, stderr_task) if task is not None]
         for task in tasks:
             task.cancel()
-        await self._terminate_process_tree(process)
-        if job is not None:
-            try:
-                await asyncio.to_thread(job.close)
-            except OSError:
-                pass
-        writer = process.stdin
-        if writer is not None:
-            writer.close()
-            try:
-                await writer.wait_closed()
-            except OSError:
-                pass
+        try:
+            if process is not None:
+                await self._terminate_process_tree(process)
+        finally:
+            for resource in (job, start_gate):
+                if resource is None:
+                    continue
+                try:
+                    await asyncio.to_thread(resource.close)
+                except OSError:
+                    pass
+        if process is not None:
+            writer = process.stdin
+            if writer is not None:
+                writer.close()
+                try:
+                    await writer.wait_closed()
+                except OSError:
+                    pass
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+
+    @staticmethod
+    async def _wait_for_start_gate(
+        start_gate: WindowsStartGate,
+        process: asyncio.subprocess.Process,
+    ) -> None:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + _WINDOWS_START_GATE_TIMEOUT_SECONDS
+        while True:
+            try:
+                start_gate.wait_until_opened(0.0)
+                return
+            except TimeoutError:
+                if process.returncode is not None or loop.time() >= deadline:
+                    raise OSError("worker bootstrap did not open start gate") from None
+                await asyncio.sleep(0.01)
 
     @staticmethod
     def _fail_pending(handle: WorkerHandle, error: WorkerError) -> None:

@@ -1,5 +1,8 @@
 import asyncio
+import os
+import sys
 import tempfile
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
@@ -14,6 +17,7 @@ from agent_platform.infrastructure.workers.supervisor import (
     WorkerTimeoutError,
     WorkerUnavailableError,
 )
+from agent_platform.infrastructure.workers.windows_job import WindowsJob, WindowsStartGate
 
 
 class _FakeClock:
@@ -49,6 +53,10 @@ async def _terminate_process(process: asyncio.subprocess.Process) -> None:
 
 def _child_pid_path(project_id: str) -> Path:
     return Path(tempfile.gettempdir()) / f"agent-platform-{project_id}.child.pid"
+
+
+def _import_marker_path(project_id: str) -> Path:
+    return Path(tempfile.gettempdir()) / f"agent-platform-{project_id}.import.marker"
 
 
 async def _wait_for_child_pid(path: Path) -> int:
@@ -120,6 +128,13 @@ async def test_supervisor_passes_canonical_worker_id_to_process(
     handle = await supervisor.start("project_canonical_identity")
 
     try:
+        assert spawn_arguments[0][:3] == (
+            sys.executable,
+            "-m",
+            "agent_platform.workers.bootstrap",
+        )
+        target_index = spawn_arguments[0].index("--target-module") + 1
+        assert spawn_arguments[0][target_index] == "agent_platform.workers.main"
         worker_id_index = spawn_arguments[0].index("--worker-id") + 1
         assert spawn_arguments[0][worker_id_index] == handle.worker_id
         assert (await supervisor.ping(handle.worker_id)).payload == {"status": "ok"}
@@ -389,6 +404,42 @@ async def test_invalid_heartbeat_schema_cannot_refresh_liveness(mode: str) -> No
         await _terminate_process(handle.process)
 
 
+@pytest.mark.parametrize(
+    "mode",
+    ["heartbeat_top_level_extra", "response_top_level_extra"],
+)
+async def test_unknown_top_level_field_is_protocol_error_before_state_change(mode: str) -> None:
+    clock = _SteppingClock()
+    supervisor = WorkerSupervisor(
+        heartbeat_timeout=timedelta(seconds=10),
+        clock=clock,
+    )
+    handle = await supervisor.start(
+        f"project_{mode}",
+        "tests.fixtures.invalid_inbound_worker",
+    )
+    started_at = handle.last_heartbeat_at
+
+    try:
+        with pytest.raises(WorkerProtocolError, match="protocol failed") as raised:
+            await supervisor.send(
+                handle.worker_id,
+                "command",
+                {"name": "unknown_top_level"},
+                timeout_seconds=1.0,
+            )
+        await handle.reader_task
+
+        assert "SECRET_UNKNOWN_TOP_LEVEL_FIELD" not in str(raised.value)
+        assert handle.last_heartbeat_at == started_at
+        assert handle.pending == {}
+        assert handle.process.returncode is not None
+        assert supervisor.get(handle.worker_id) is None
+    finally:
+        await supervisor.stop_all()
+        await _terminate_process(handle.process)
+
+
 async def test_concurrent_stop_callers_wait_for_same_cleanup() -> None:
     supervisor = WorkerSupervisor(
         heartbeat_timeout=timedelta(seconds=10),
@@ -641,3 +692,144 @@ async def test_start_failure_after_spawn_reaps_process(
     finally:
         for process in spawned:
             await _terminate_process(process)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows Job startup race only")
+async def test_immediate_child_cannot_escape_before_job_assignment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_create_for_process = WindowsJob.create_for_process
+
+    def delayed_create_for_process(cls: type[WindowsJob], pid: int) -> WindowsJob:
+        del cls
+        time.sleep(0.5)
+        return real_create_for_process(pid)
+
+    monkeypatch.setattr(
+        WindowsJob,
+        "create_for_process",
+        classmethod(delayed_create_for_process),
+    )
+    supervisor = WorkerSupervisor(heartbeat_timeout=timedelta(seconds=10))
+    project_id = f"immediate_tree_{uuid4().hex}"
+    pid_path = _child_pid_path(project_id)
+    pid_path.unlink(missing_ok=True)
+    handle = None
+    child_pid: int | None = None
+
+    try:
+        try:
+            handle = await supervisor.start(project_id, "tests.fixtures.immediate_child_worker")
+        except WorkerUnavailableError:
+            pass
+        child_pid = await _wait_for_child_pid(pid_path)
+        if handle is not None:
+            await asyncio.wait_for(handle.reader_task, timeout=2.0)
+
+        await _wait_for_pid_exit(child_pid)
+    finally:
+        await supervisor.stop_all()
+        if handle is not None:
+            await _terminate_process(handle.process)
+        if child_pid is not None:
+            await asyncio.to_thread(_kill_pid_if_alive, child_pid)
+        pid_path.unlink(missing_ok=True)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows start gate only")
+async def test_job_assignment_failure_never_runs_target_and_closes_start_handles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_id = f"assign_failure_{uuid4().hex}"
+    path = _import_marker_path(project_id)
+    path.unlink(missing_ok=True)
+    spawned: list[asyncio.subprocess.Process] = []
+    jobs: list[WindowsJob] = []
+    gates: list[WindowsStartGate] = []
+    real_spawn = asyncio.create_subprocess_exec
+    real_job_create = WindowsJob.create
+    real_gate_create = WindowsStartGate.create
+
+    async def recording_spawn(*args: object, **kwargs: object) -> asyncio.subprocess.Process:
+        process = await real_spawn(*args, **kwargs)  # type: ignore[arg-type]
+        spawned.append(process)
+        return process
+
+    def recording_job_create(cls: type[WindowsJob]) -> WindowsJob:
+        del cls
+        job = real_job_create()
+        jobs.append(job)
+        return job
+
+    def recording_gate_create(cls: type[WindowsStartGate]) -> WindowsStartGate:
+        del cls
+        gate = real_gate_create()
+        gates.append(gate)
+        return gate
+
+    def broken_assign(self: WindowsJob, pid: int) -> None:
+        del self, pid
+        time.sleep(0.2)
+        assert not path.exists()
+        raise OSError("SECRET_ASSIGNMENT_FAILURE")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", recording_spawn)
+    monkeypatch.setattr(WindowsJob, "create", classmethod(recording_job_create))
+    monkeypatch.setattr(WindowsStartGate, "create", classmethod(recording_gate_create))
+    monkeypatch.setattr(WindowsJob, "assign_process", broken_assign)
+    supervisor = WorkerSupervisor(heartbeat_timeout=timedelta(seconds=10))
+
+    try:
+        with pytest.raises(WorkerUnavailableError, match="could not be started"):
+            await supervisor.start(project_id, "tests.fixtures.import_marker_worker")
+
+        assert not path.exists()
+        assert len(spawned) == 1
+        assert spawned[0].returncode is not None
+        assert len(jobs) == 1
+        assert jobs[0]._handle is None
+        assert len(gates) == 1
+        assert gates[0]._handle is None
+        assert gates[0]._ready_handle is None
+    finally:
+        await supervisor.stop_all()
+        for process in spawned:
+            await _terminate_process(process)
+        path.unlink(missing_ok=True)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows start gate only")
+async def test_gate_release_failure_reaps_bootstrap_without_running_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_id = f"gate_failure_{uuid4().hex}"
+    path = _import_marker_path(project_id)
+    path.unlink(missing_ok=True)
+    spawned: list[asyncio.subprocess.Process] = []
+    real_spawn = asyncio.create_subprocess_exec
+
+    async def recording_spawn(*args: object, **kwargs: object) -> asyncio.subprocess.Process:
+        process = await real_spawn(*args, **kwargs)  # type: ignore[arg-type]
+        spawned.append(process)
+        return process
+
+    def broken_release(self: WindowsStartGate) -> None:
+        del self
+        raise OSError("SECRET_GATE_RELEASE_FAILURE")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", recording_spawn)
+    monkeypatch.setattr(WindowsStartGate, "release", broken_release)
+    supervisor = WorkerSupervisor(heartbeat_timeout=timedelta(seconds=10))
+
+    try:
+        with pytest.raises(WorkerUnavailableError, match="could not be started"):
+            await supervisor.start(project_id, "tests.fixtures.import_marker_worker")
+
+        assert not path.exists()
+        assert len(spawned) == 1
+        assert spawned[0].returncode is not None
+    finally:
+        await supervisor.stop_all()
+        for process in spawned:
+            await _terminate_process(process)
+        path.unlink(missing_ok=True)

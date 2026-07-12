@@ -66,7 +66,7 @@ def validate_json_payload(value: object) -> dict[str, Any]:
 
 
 class IpcMessage(BaseModel):
-    model_config = ConfigDict(strict=True, hide_input_in_errors=True)
+    model_config = ConfigDict(strict=True, extra="forbid", hide_input_in_errors=True)
 
     protocol_version: Literal[1] = 1
     message_id: NonEmptyString
