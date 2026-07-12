@@ -1389,54 +1389,63 @@ async def test_reader_pending_failure_still_completes_full_worker_cleanup(
         heartbeat_timeout=timedelta(seconds=10),
         shutdown_timeout_seconds=0.1,
     )
-    handle = await supervisor.start(
-        "project_reader_pending_failure",
-        "tests.fixtures.corrupt_worker",
-    )
-    identity = _capture_process_identity("worker", handle.process.pid)
-    real_fail_pending = supervisor._fail_pending
-    fail_pending_calls = 0
-
-    def fail_pending_once(handle: WorkerHandle, error: WorkerError) -> None:
-        nonlocal fail_pending_calls
-        fail_pending_calls += 1
-        if fail_pending_calls == 1:
-            raise RuntimeError("reader pending cleanup failed")
-        real_fail_pending(handle, error)
-
-    monkeypatch.setattr(supervisor, "_fail_pending", fail_pending_once)
-    send_task = asyncio.create_task(
-        supervisor.send(
-            handle.worker_id,
-            "command",
-            {"name": "trigger_corruption"},
-            timeout_seconds=2.0,
-        )
-    )
-
+    handle: WorkerHandle | None = None
+    identity: _ProcessIdentity | None = None
+    send_task: asyncio.Task[IpcMessage] | None = None
     try:
+        handle = await supervisor.start(
+            "project_reader_pending_failure",
+            "tests.fixtures.corrupt_worker",
+        )
+        identity = _capture_process_identity("worker", handle.process.pid)
+        real_fail_pending = supervisor._fail_pending
+        fail_pending_calls = 0
+
+        def fail_pending_once(handle: WorkerHandle, error: WorkerError) -> None:
+            nonlocal fail_pending_calls
+            fail_pending_calls += 1
+            if fail_pending_calls == 1:
+                raise RuntimeError("reader pending cleanup failed")
+            real_fail_pending(handle, error)
+
+        monkeypatch.setattr(supervisor, "_fail_pending", fail_pending_once)
+        send_task = asyncio.create_task(
+            supervisor.send(
+                handle.worker_id,
+                "command",
+                {"name": "trigger_corruption"},
+                timeout_seconds=2.0,
+            )
+        )
+
         with pytest.raises(RuntimeError, match="reader pending cleanup failed"):
             await asyncio.wait_for(handle.reader_task, timeout=3.0)
 
         assert handle.process.returncode is not None
+        assert identity is not None
         assert await _wait_for_identity_exit((identity,)) == ()
         assert handle.job is None or handle.job._handle is None
         assert handle._stderr_task.done()
+        assert send_task is not None
         with pytest.raises(WorkerUnavailableError, match="worker is unavailable"):
             await send_task
         assert handle.pending == {}
         assert supervisor._workers == {}
         assert supervisor._projects == {}
     finally:
-        if not send_task.done():
-            send_task.cancel()
-        await asyncio.gather(send_task, return_exceptions=True)
-        await asyncio.to_thread(_kill_process_identities, (identity,))
-        if handle.job is not None:
-            await asyncio.to_thread(handle.job.close)
-        handle._stderr_task.cancel()
-        await asyncio.gather(handle._stderr_task, return_exceptions=True)
-        await _terminate_process(handle.process)
+        if send_task is not None:
+            if not send_task.done():
+                send_task.cancel()
+            await asyncio.gather(send_task, return_exceptions=True)
+        if identity is not None:
+            await asyncio.to_thread(_kill_process_identities, (identity,))
+        await asyncio.gather(supervisor.stop_all(), return_exceptions=True)
+        if handle is not None:
+            if handle.job is not None:
+                await asyncio.to_thread(handle.job.close)
+            handle._stderr_task.cancel()
+            await asyncio.gather(handle._stderr_task, return_exceptions=True)
+            await _terminate_process(handle.process)
 
 
 async def test_stop_all_capture_failure_still_completes_full_worker_cleanup(

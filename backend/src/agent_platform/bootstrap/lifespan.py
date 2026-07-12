@@ -27,17 +27,13 @@ def _raise_primary_with_cleanup_failure(
     original_cause = primary_error.__cause__
     original_context = primary_error.__context__
     original_suppress_context = primary_error.__suppress_context__
-    if original_cause is None and original_context is None:
-        primary_error.__cause__ = cleanup_error
-        primary_error.__suppress_context__ = True
-    else:
-        try:
-            BaseException.add_note(primary_error, _CLEANUP_FAILURE_NOTE)
-        except BaseException:
-            pass
-        primary_error.__cause__ = original_cause
-        primary_error.__suppress_context__ = original_suppress_context
+    try:
+        BaseException.add_note(primary_error, _CLEANUP_FAILURE_NOTE)
+    except BaseException:
+        pass
+    primary_error.__cause__ = original_cause
     primary_error.__context__ = original_context
+    primary_error.__suppress_context__ = original_suppress_context
     raise primary_error
 
 

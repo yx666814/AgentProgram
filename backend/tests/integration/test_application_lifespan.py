@@ -301,8 +301,10 @@ async def test_shutdown_preserves_worker_stop_error_when_database_dispose_fails(
         async with app.router.lifespan_context(app):
             pass
 
-    assert isinstance(raised.value.__cause__, LookupError)
-    assert str(raised.value.__cause__) == "database dispose failed"
+    assert raised.value.__cause__ is None
+    assert raised.value.__context__ is None
+    assert raised.value.__suppress_context__ is False
+    assert raised.value.__notes__ == ["Additional cleanup failure occurred."]
     assert not hasattr(app.state, "database")
     assert not hasattr(app.state, "worker_supervisor")
 
@@ -358,8 +360,10 @@ async def test_lifespan_cancellation_remains_primary_when_shutdown_fails(
     with pytest.raises(asyncio.CancelledError) as raised:
         await lifespan_task
 
-    assert isinstance(raised.value.__cause__, RuntimeError)
-    assert str(raised.value.__cause__) == "worker shutdown failed"
+    assert raised.value.__cause__ is None
+    assert raised.value.__context__ is None
+    assert raised.value.__suppress_context__ is False
+    assert raised.value.__notes__ == ["Additional cleanup failure occurred."]
     assert disposed is True
     assert not hasattr(app.state, "database")
     assert not hasattr(app.state, "worker_supervisor")
@@ -395,8 +399,10 @@ async def test_database_probe_failure_remains_primary_when_dispose_fails(
         async with app.router.lifespan_context(app):
             pass
 
-    assert isinstance(raised.value.__cause__, RuntimeError)
-    assert str(raised.value.__cause__) == "database dispose failed"
+    assert raised.value.__cause__ is None
+    assert raised.value.__context__ is None
+    assert raised.value.__suppress_context__ is False
+    assert raised.value.__notes__ == ["Additional cleanup failure occurred."]
     assert not hasattr(app.state, "database")
     assert not hasattr(app.state, "worker_supervisor")
 
@@ -488,6 +494,24 @@ async def test_cleanup_failure_preserves_primary_implicit_context(
     assert raised.value.__notes__ == ["Additional cleanup failure occurred."]
     assert "ValueError" not in raised.value.__notes__[0]
     assert "cleanup-secret" not in raised.value.__notes__[0]
+
+
+def test_cleanup_failure_preserves_empty_primary_chain_and_redacts_secondary() -> None:
+    primary_error = RuntimeError("primary failure")
+    cleanup_error = LookupError("SECRET_CLEANUP")
+
+    with pytest.raises(RuntimeError, match="primary failure") as raised:
+        lifespan_module._raise_primary_with_cleanup_failure(
+            primary_error,
+            cleanup_error,
+        )
+
+    assert raised.value is primary_error
+    assert raised.value.__cause__ is None
+    assert raised.value.__context__ is None
+    assert raised.value.__suppress_context__ is False
+    assert raised.value.__notes__ == ["Additional cleanup failure occurred."]
+    assert "SECRET_CLEANUP" not in raised.value.__notes__[0]
 
 
 def test_cleanup_note_bypasses_overridden_add_note() -> None:
