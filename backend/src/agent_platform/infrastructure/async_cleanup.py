@@ -1,6 +1,21 @@
 import asyncio
 from collections.abc import Awaitable
 
+_CLEANUP_FAILURE_NOTE = "Additional cleanup failure occurred."
+
+
+def _add_cleanup_failure_note(cancellation: asyncio.CancelledError) -> None:
+    original_cause = cancellation.__cause__
+    original_context = cancellation.__context__
+    original_suppress_context = cancellation.__suppress_context__
+    try:
+        BaseException.add_note(cancellation, _CLEANUP_FAILURE_NOTE)
+    except BaseException:
+        pass
+    cancellation.__cause__ = original_cause
+    cancellation.__context__ = original_context
+    cancellation.__suppress_context__ = original_suppress_context
+
 
 async def await_cancellation_resistant[T](awaitable: Awaitable[T]) -> T:
     cleanup_task = asyncio.ensure_future(awaitable)
@@ -15,17 +30,18 @@ async def await_cancellation_resistant[T](awaitable: Awaitable[T]) -> T:
         except BaseException:
             break
 
+    cleanup_failed = False
     try:
         result = cleanup_task.result()
-    except asyncio.CancelledError as cleanup_cancellation:
-        if cancellation is not None:
-            raise cancellation from cleanup_cancellation
-        raise
-    except BaseException as cleanup_error:
-        if cancellation is not None:
-            raise cancellation from cleanup_error
-        raise
+    except BaseException:
+        if cancellation is None:
+            raise
+        cleanup_failed = True
+    else:
+        if cancellation is None:
+            return result
 
-    if cancellation is not None:
-        raise cancellation
-    return result
+    assert cancellation is not None
+    if cleanup_failed:
+        _add_cleanup_failure_note(cancellation)
+    raise cancellation
