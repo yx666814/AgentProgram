@@ -6,7 +6,8 @@ from logging.config import fileConfig
 from pathlib import Path
 
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, inspect, pool, text
+from sqlalchemy.engine import Connection
 
 MIGRATIONS_ROOT = Path(__file__).resolve().parent
 BACKEND_ROOT = MIGRATIONS_ROOT.parent
@@ -59,6 +60,19 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+def _drop_empty_sqlite_version_table(connection: Connection) -> None:
+    if connection.dialect.name != "sqlite":
+        return
+
+    inspector = inspect(connection)
+    if not inspector.has_table("alembic_version"):
+        return
+
+    version_count = connection.execute(text("SELECT COUNT(*) FROM alembic_version")).scalar_one()
+    if version_count == 0:
+        connection.exec_driver_sql("DROP TABLE alembic_version")
+
+
 def run_migrations_online() -> None:
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
@@ -76,6 +90,7 @@ def run_migrations_online() -> None:
 
         with context.begin_transaction():
             context.run_migrations()
+            _drop_empty_sqlite_version_table(connection)
 
 
 if context.is_offline_mode():

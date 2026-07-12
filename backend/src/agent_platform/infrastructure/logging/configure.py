@@ -24,8 +24,7 @@ def _redact(value: Any, key: str | None = None) -> Any:
         return "***"
     if isinstance(value, Mapping):
         return {
-            item_key: _redact(item_value, str(item_key))
-            for item_key, item_value in value.items()
+            item_key: _redact(item_value, str(item_key)) for item_key, item_value in value.items()
         }
     if isinstance(value, list):
         return [_redact(item) for item in value]

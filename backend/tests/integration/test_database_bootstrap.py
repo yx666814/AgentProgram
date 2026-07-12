@@ -88,9 +88,7 @@ async def test_foundation_datetime_is_normalized_to_utc(tmp_path: Path) -> None:
             )
 
         async with database.sessions() as session:
-            stored_datetime = (
-                await session.execute(select(EventLogRow.created_at))
-            ).scalar_one()
+            stored_datetime = (await session.execute(select(EventLogRow.created_at))).scalar_one()
     finally:
         await database.dispose()
 
@@ -154,8 +152,7 @@ def test_outbox_event_log_id_avoids_redundant_non_unique_index() -> None:
         if isinstance(constraint, UniqueConstraint)
     }
     explicit_index_columns = {
-        tuple(column.name for column in index.columns)
-        for index in outbox_table.indexes
+        tuple(column.name for column in index.columns) for index in outbox_table.indexes
     }
 
     assert event_log_id_columns in unique_constraint_columns

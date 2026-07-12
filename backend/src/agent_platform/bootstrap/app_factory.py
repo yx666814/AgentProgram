@@ -42,3 +42,7 @@ def create_app(settings: Settings) -> FastAPI:
     )
     register_error_handlers(app)
     return app
+
+
+def dev_app() -> FastAPI:
+    return create_app(Settings())

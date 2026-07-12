@@ -95,9 +95,7 @@ async def test_exception_rolls_back_event_and_outbox(tmp_path: Path) -> None:
 
         async with database.sessions() as session:
             event_count = await session.scalar(select(func.count()).select_from(EventLogRow))
-            outbox_count = await session.scalar(
-                select(func.count()).select_from(OutboxEventRow)
-            )
+            outbox_count = await session.scalar(select(func.count()).select_from(OutboxEventRow))
     finally:
         await database.dispose()
 
@@ -127,9 +125,7 @@ async def test_normal_exit_without_commit_rolls_back_event_and_outbox(tmp_path: 
 
         async with database.sessions() as session:
             event_count = await session.scalar(select(func.count()).select_from(EventLogRow))
-            outbox_count = await session.scalar(
-                select(func.count()).select_from(OutboxEventRow)
-            )
+            outbox_count = await session.scalar(select(func.count()).select_from(OutboxEventRow))
     finally:
         await database.dispose()
 
