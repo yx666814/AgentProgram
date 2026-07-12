@@ -2,16 +2,16 @@
 
 import asyncio
 import os
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from .windows_job import WindowsJob
+from .windows_job import WindowsJob
 
 
 async def create_windows_job_subprocess_exec(
-    job: "WindowsJob",
+    job: WindowsJob,
     *args: str,
 ) -> asyncio.subprocess.Process:
+    """Spawn a piped process atomically inside a Windows Job Object."""
+
     if os.name != "nt":
         raise OSError("atomic Windows worker spawn is unavailable")
 

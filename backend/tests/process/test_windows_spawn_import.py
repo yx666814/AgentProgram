@@ -1,6 +1,25 @@
+import asyncio
+import inspect
 import subprocess
 import sys
 import textwrap
+from typing import get_type_hints
+
+from agent_platform.infrastructure.workers.windows_job import WindowsJob
+from agent_platform.infrastructure.workers.windows_spawn import (
+    create_windows_job_subprocess_exec,
+)
+
+
+def test_windows_spawn_public_metadata_is_runtime_resolvable() -> None:
+    hints = get_type_hints(create_windows_job_subprocess_exec)
+
+    assert hints["job"] is WindowsJob
+    assert hints["args"] is str
+    assert hints["return"] is asyncio.subprocess.Process
+    assert inspect.getdoc(create_windows_job_subprocess_exec) == (
+        "Spawn a piped process atomically inside a Windows Job Object."
+    )
 
 
 def test_windows_spawn_import_is_safe_when_windows_asyncio_modules_are_unavailable() -> None:
