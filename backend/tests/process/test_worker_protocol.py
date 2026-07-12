@@ -2,11 +2,12 @@ import asyncio
 import sys
 import threading
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
 
-from agent_platform.interfaces.ipc.framing import FrameDecoder, encode_frame
+from agent_platform.interfaces.ipc.framing import MAX_BODY_BYTES, FrameDecoder, encode_frame
 from agent_platform.interfaces.ipc.messages import IpcMessage
 from agent_platform.workers import main as worker_main
 
@@ -129,10 +130,13 @@ async def test_worker_acknowledges_ping_and_completes_shutdown() -> None:
 
 
 async def test_worker_sends_heartbeat_after_interval_with_first_sequence() -> None:
-    process = await _start_worker("--heartbeat-interval", "0.05")
+    process = await _start_worker("--heartbeat-interval", "0.25")
+    assert process.stdout is not None
     decoder = FrameDecoder()
     pending: list[IpcMessage] = []
     try:
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(process.stdout.read(1), timeout=0.05)
         heartbeat = await _read_next_message(process, decoder, pending)
         await _write_messages(
             process,
@@ -271,6 +275,42 @@ async def test_worker_partial_frame_at_eof_exits_two_without_leaking_input() -> 
     assert _decode_complete_output(stdout) == []
     assert marker not in stderr
     assert b"Content-Length" not in stderr
+
+
+async def test_worker_oversized_outbound_ack_exits_one_as_internal_error() -> None:
+    marker = "SECRET_OVERSIZED_ACK_"
+    timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+    template = IpcMessage(
+        message_id=marker,
+        sequence=1,
+        project_id="project_1",
+        type="command",
+        timestamp=timestamp,
+        payload={"name": "ping"},
+    )
+    template_body = encode_frame(template).partition(b"\r\n\r\n")[2]
+    ping = IpcMessage(
+        message_id=marker + ("x" * (MAX_BODY_BYTES - len(template_body))),
+        sequence=1,
+        project_id="project_1",
+        type="command",
+        timestamp=timestamp,
+        payload={"name": "ping"},
+    )
+    frame = encode_frame(ping)
+    assert len(frame.partition(b"\r\n\r\n")[2]) == MAX_BODY_BYTES
+
+    process = await _start_worker("--heartbeat-interval", "60")
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(frame), timeout=5)
+    finally:
+        await _terminate_process(process)
+
+    assert process.returncode == 1
+    assert stdout == b""
+    assert stderr.splitlines() == [b"worker internal error: FramingError"]
+    assert marker.encode() not in stderr
+    assert b"Traceback" not in stderr
 
 
 async def test_worker_clean_eof_exits_zero_without_orphan_heartbeat() -> None:
@@ -457,6 +497,37 @@ async def test_worker_rejects_invalid_project_id_without_echoing_value(project_i
         assert project_id.encode() not in stderr
 
 
+@pytest.mark.parametrize(
+    "args",
+    [
+        ("--project-id", "project_1", "--bogus", "SECRET_UNKNOWN_ARG"),
+        (),
+    ],
+)
+async def test_worker_argument_errors_use_fixed_safe_diagnostic(args: tuple[str, ...]) -> None:
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-m",
+        "agent_platform.workers.main",
+        *args,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(b""), timeout=5)
+    finally:
+        await _terminate_process(process)
+
+    assert process.returncode == 2
+    assert stdout == b""
+    assert stderr.splitlines() == [b"worker argument error"]
+    assert b"usage:" not in stderr
+    assert b"--bogus" not in stderr
+    assert b"--project-id" not in stderr
+    assert b"SECRET_UNKNOWN_ARG" not in stderr
+
+
 async def test_worker_help_never_writes_unframed_stdout() -> None:
     process = await asyncio.create_subprocess_exec(
         sys.executable,
@@ -477,7 +548,7 @@ async def test_worker_help_never_writes_unframed_stdout() -> None:
     assert b"usage:" in stderr
 
 
-async def test_worker_cancellation_keeps_writer_lock_until_thread_finishes(
+async def test_worker_two_cancellations_keep_writer_lock_until_thread_finishes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     first_writer_entered = threading.Event()
@@ -485,13 +556,14 @@ async def test_worker_cancellation_keeps_writer_lock_until_thread_finishes(
     release_first_writer = threading.Event()
     call_lock = threading.Lock()
     call_count = 0
+    written_frames: list[bytes] = []
 
     def blocking_writer(frame: bytes) -> None:
         nonlocal call_count
-        del frame
         with call_lock:
             call_count += 1
             current_call = call_count
+            written_frames.append(frame)
         if current_call == 1:
             first_writer_entered.set()
             release_first_writer.wait(timeout=5)
@@ -504,7 +576,11 @@ async def test_worker_cancellation_keeps_writer_lock_until_thread_finishes(
     assert await asyncio.to_thread(first_writer_entered.wait, 1)
 
     first_send.cancel()
+    await asyncio.sleep(0)
     second_send = asyncio.create_task(worker._send("ack", {"status": "second"}))
+    first_send.cancel()
+    await asyncio.sleep(0)
+    assert first_send.cancelling() == 2
     try:
         assert not await asyncio.to_thread(second_writer_entered.wait, 0.1)
     finally:
@@ -514,6 +590,12 @@ async def test_worker_cancellation_keeps_writer_lock_until_thread_finishes(
     assert isinstance(results[0], asyncio.CancelledError)
     assert results[1] is None
     assert second_writer_entered.is_set()
+    messages = _decode_complete_output(b"".join(written_frames))
+    assert [message.sequence for message in messages] == [1, 2]
+    assert [message.payload for message in messages] == [
+        {"status": "first"},
+        {"status": "second"},
+    ]
 
 
 async def test_worker_broken_stdout_exits_one_without_shutdown_diagnostic() -> None:
@@ -521,9 +603,9 @@ async def test_worker_broken_stdout_exits_one_without_shutdown_diagnostic() -> N
     process = await _start_worker("--heartbeat-interval", "60")
     assert process.stdin is not None
     assert process.stderr is not None
-    process_transport = cast(Any, process)._transport
-    process_transport.get_pipe_transport(1).close()
     try:
+        process_transport = cast(Any, process)._transport
+        process_transport.get_pipe_transport(1).close()
         await asyncio.sleep(0.1)
         ping = IpcMessage(
             message_id="broken_stdout_ping",
@@ -551,3 +633,27 @@ async def test_worker_broken_stdout_exits_one_without_shutdown_diagnostic() -> N
     assert b"Traceback" not in stderr
     assert b"Content-Length" not in stderr
     assert marker not in stderr
+
+
+async def test_worker_heartbeat_failure_exits_one_while_stdin_remains_open() -> None:
+    process = await _start_worker("--heartbeat-interval", "0.05")
+    assert process.stdin is not None
+    assert process.stderr is not None
+    wait_task = asyncio.create_task(process.wait())
+    try:
+        process_transport = cast(Any, process)._transport
+        process_transport.get_pipe_transport(1).close()
+        returncode = await asyncio.wait_for(asyncio.shield(wait_task), timeout=2)
+        stderr = await process.stderr.read()
+    finally:
+        await _terminate_process(process)
+        await wait_task
+
+    assert returncode == 1
+    assert stderr.splitlines() in [
+        [b"worker internal error: BrokenPipeError"],
+        [b"worker internal error: OSError"],
+    ]
+    assert b"Exception ignored" not in stderr
+    assert b"Traceback" not in stderr
+    assert b"project_1" not in stderr

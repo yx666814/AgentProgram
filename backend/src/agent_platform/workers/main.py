@@ -3,9 +3,9 @@ import asyncio
 import math
 import os
 import sys
+import threading
 from collections.abc import Sequence
-from io import BufferedReader
-from typing import Any, cast
+from typing import Any, Never
 
 from agent_platform.domain.shared.ids import new_id
 from agent_platform.interfaces.ipc.framing import FrameDecoder, FramingError, encode_frame
@@ -15,6 +15,14 @@ from agent_platform.interfaces.ipc.messages import IpcMessage, MessageType
 class _StderrArgumentParser(argparse.ArgumentParser):
     def print_help(self, file: Any = None) -> None:
         super().print_help(file=sys.stderr if file is None else file)
+
+    def error(self, message: str) -> Never:
+        del message
+        self.exit(2, "worker argument error\n")
+
+
+class _WorkerInputProtocolError(Exception):
+    pass
 
 
 def _project_id(value: str) -> str:
@@ -70,6 +78,46 @@ def _redirect_stdout_to_devnull() -> None:
                 os.close(devnull_fd)
             except OSError:
                 pass
+
+
+class _DaemonStdinReader:
+    def __init__(self) -> None:
+        self._loop = asyncio.get_running_loop()
+        self._queue: asyncio.Queue[bytes | Exception] = asyncio.Queue()
+        self._read_requests = threading.Semaphore(0)
+        self._stdin_fd = sys.stdin.buffer.fileno()
+        self._thread = threading.Thread(
+            target=self._read_chunks,
+            name="worker-stdin-reader",
+            daemon=True,
+        )
+
+    def start(self) -> None:
+        self._thread.start()
+
+    async def read(self) -> bytes:
+        self._read_requests.release()
+        result = await self._queue.get()
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    def _publish(self, result: bytes | Exception) -> None:
+        try:
+            self._loop.call_soon_threadsafe(self._queue.put_nowait, result)
+        except RuntimeError:
+            pass
+
+    def _read_chunks(self) -> None:
+        try:
+            while True:
+                self._read_requests.acquire()
+                chunk = os.read(self._stdin_fd, 65536)
+                self._publish(chunk)
+                if not chunk:
+                    return
+        except Exception as error:
+            self._publish(error)
 
 
 class _WorkerProtocol:
@@ -185,18 +233,48 @@ class _WorkerProtocol:
         )
         return False
 
+    async def _read_stdin_or_raise_heartbeat_failure(
+        self,
+        reader: _DaemonStdinReader,
+    ) -> bytes:
+        heartbeat_task = self._heartbeat_task
+        if heartbeat_task is None:
+            raise RuntimeError("heartbeat task is unavailable")
+        read_task = asyncio.create_task(reader.read())
+        try:
+            done, _ = await asyncio.wait(
+                (read_task, heartbeat_task),
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if heartbeat_task in done:
+                await heartbeat_task
+                raise RuntimeError("heartbeat task stopped unexpectedly")
+            return read_task.result()
+        finally:
+            if not read_task.done():
+                read_task.cancel()
+                try:
+                    await read_task
+                except asyncio.CancelledError:
+                    pass
+
     async def run(self) -> int:
         decoder = FrameDecoder()
+        reader = _DaemonStdinReader()
         self._heartbeat_task = asyncio.create_task(self._send_heartbeats())
         try:
+            reader.start()
             while True:
-                stdin = cast(BufferedReader, sys.stdin.buffer)
-                chunk = await asyncio.to_thread(stdin.read1, 65536)
+                chunk = await self._read_stdin_or_raise_heartbeat_failure(reader)
                 if not chunk:
                     if decoder._buffer or decoder._expected_body_length is not None:
-                        raise FramingError("incomplete IPC frame at EOF")
+                        raise _WorkerInputProtocolError
                     return 0
-                for message in decoder.feed(chunk):
+                try:
+                    messages = decoder.feed(chunk)
+                except FramingError:
+                    raise _WorkerInputProtocolError from None
+                for message in messages:
                     if await self._handle_message(message):
                         return 0
         finally:
@@ -206,8 +284,8 @@ class _WorkerProtocol:
 async def _run(project_id: str, heartbeat_interval: float) -> int:
     try:
         return await _WorkerProtocol(project_id, heartbeat_interval).run()
-    except FramingError as error:
-        _safe_stderr("protocol error", type(error))
+    except _WorkerInputProtocolError:
+        _safe_stderr("protocol error", FramingError)
         return 2
     except asyncio.CancelledError:
         raise
