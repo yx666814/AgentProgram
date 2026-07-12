@@ -18,30 +18,57 @@ async def _probe_database(database: Database) -> None:
         await connection.execute(text("SELECT 1"))
 
 
+def _raise_primary_with_cleanup_failure(
+    primary_error: BaseException,
+    cleanup_error: BaseException,
+) -> Never:
+    original_cause = primary_error.__cause__
+    original_context = primary_error.__context__
+    original_suppress_context = primary_error.__suppress_context__
+    if original_cause is None and original_context is None:
+        primary_error.__cause__ = cleanup_error
+        primary_error.__suppress_context__ = True
+    else:
+        primary_error.add_note(f"Additional cleanup failure: {type(cleanup_error).__name__}")
+        primary_error.__cause__ = original_cause
+        primary_error.__suppress_context__ = original_suppress_context
+    primary_error.__context__ = original_context
+    raise primary_error
+
+
 async def _shutdown_resources(
     worker_supervisor: WorkerSupervisor,
     database: Database,
 ) -> None:
+    stop_error: BaseException | None = None
     try:
         await worker_supervisor.stop_all()
-    except BaseException as stop_error:
-        try:
-            await database.dispose()
-        except BaseException as dispose_error:
-            raise stop_error from dispose_error
-        raise
-    else:
+    except BaseException as error:
+        stop_error = error
+    dispose_error: BaseException | None = None
+    try:
         await database.dispose()
+    except BaseException as error:
+        dispose_error = error
+    if stop_error is not None:
+        if dispose_error is not None:
+            _raise_primary_with_cleanup_failure(stop_error, dispose_error)
+        raise stop_error
+    if dispose_error is not None:
+        raise dispose_error
 
 
 async def _await_cleanup_preserving_primary(
     cleanup: Awaitable[None],
     primary_error: BaseException,
 ) -> Never:
+    cleanup_error: BaseException | None = None
     try:
         await await_cancellation_resistant(cleanup)
-    except BaseException as cleanup_error:
-        raise primary_error from cleanup_error
+    except BaseException as error:
+        cleanup_error = error
+    if cleanup_error is not None:
+        _raise_primary_with_cleanup_failure(primary_error, cleanup_error)
     raise primary_error
 
 

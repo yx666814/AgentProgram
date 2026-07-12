@@ -399,3 +399,90 @@ async def test_database_probe_failure_remains_primary_when_dispose_fails(
     assert str(raised.value.__cause__) == "database dispose failed"
     assert not hasattr(app.state, "database")
     assert not hasattr(app.state, "worker_supervisor")
+
+
+@pytest.mark.asyncio
+async def test_cleanup_failure_preserves_primary_explicit_cause_and_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_cause = RuntimeError("original cause")
+    original_context = OSError("original context")
+    primary_error = LookupError("database probe failed")
+    primary_error.__cause__ = original_cause
+    primary_error.__context__ = original_context
+    primary_error.__suppress_context__ = True
+
+    class FailingConnectionContext:
+        async def __aenter__(self) -> None:
+            raise primary_error
+
+        async def __aexit__(self, *_: object) -> None:
+            pass
+
+    class FailingEngine:
+        def connect(self) -> FailingConnectionContext:
+            return FailingConnectionContext()
+
+    class FailingDatabase:
+        engine = FailingEngine()
+
+        async def dispose(self) -> None:
+            raise ValueError("cleanup-secret")
+
+    database = FailingDatabase()
+    monkeypatch.setattr(lifespan_module, "create_database", lambda _: database)
+    app = create_app(_settings(tmp_path))
+
+    with pytest.raises(LookupError, match="database probe failed") as raised:
+        async with app.router.lifespan_context(app):
+            pass
+
+    assert raised.value is primary_error
+    assert raised.value.__cause__ is original_cause
+    assert raised.value.__context__ is original_context
+    assert raised.value.__notes__ == ["Additional cleanup failure: ValueError"]
+    assert "cleanup-secret" not in raised.value.__notes__[0]
+
+
+@pytest.mark.asyncio
+async def test_cleanup_failure_preserves_primary_implicit_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_context = OSError("original context")
+    primary_error = LookupError("database probe failed")
+    primary_error.__context__ = original_context
+    primary_error.__suppress_context__ = False
+
+    class FailingConnectionContext:
+        async def __aenter__(self) -> None:
+            raise primary_error
+
+        async def __aexit__(self, *_: object) -> None:
+            pass
+
+    class FailingEngine:
+        def connect(self) -> FailingConnectionContext:
+            return FailingConnectionContext()
+
+    class FailingDatabase:
+        engine = FailingEngine()
+
+        async def dispose(self) -> None:
+            raise ValueError("cleanup-secret")
+
+    database = FailingDatabase()
+    monkeypatch.setattr(lifespan_module, "create_database", lambda _: database)
+    app = create_app(_settings(tmp_path))
+
+    with pytest.raises(LookupError, match="database probe failed") as raised:
+        async with app.router.lifespan_context(app):
+            pass
+
+    assert raised.value is primary_error
+    assert raised.value.__cause__ is None
+    assert raised.value.__context__ is original_context
+    assert raised.value.__suppress_context__ is False
+    assert raised.value.__notes__ == ["Additional cleanup failure: ValueError"]
+    assert "cleanup-secret" not in raised.value.__notes__[0]

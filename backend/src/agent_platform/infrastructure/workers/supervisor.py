@@ -117,6 +117,7 @@ class WorkerSupervisor:
         self._workers: dict[str, WorkerHandle] = {}
         self._projects: dict[str, WorkerHandle] = {}
         self._registry_lock = asyncio.Lock()
+        self._closing = False
 
     async def start(
         self,
@@ -126,6 +127,8 @@ class WorkerSupervisor:
         if not project_id or not project_id.isascii() or not project_id.isprintable():
             raise ValueError("invalid project id")
         async with self._registry_lock:
+            if self._closing:
+                raise WorkerUnavailableError("worker supervisor is unavailable")
             if project_id in self._projects:
                 raise WorkerError("worker already active for project")
             process: asyncio.subprocess.Process | None = None
@@ -302,13 +305,16 @@ class WorkerSupervisor:
             await self._remove_registry(handle)
 
     async def stop_all(self) -> None:
-        handles = list(self._projects.values())
+        await await_cancellation_resistant(self._stop_all())
+
+    async def _stop_all(self) -> None:
+        async with self._registry_lock:
+            self._closing = True
+            handles = list(self._projects.values())
         if not handles:
             return
         stop_tasks = [await self._ensure_stop_task(handle, graceful=True) for handle in handles]
-        results = await await_cancellation_resistant(
-            asyncio.gather(*stop_tasks, return_exceptions=True)
-        )
+        results = await asyncio.gather(*stop_tasks, return_exceptions=True)
         for result in results:
             if isinstance(result, BaseException):
                 raise result

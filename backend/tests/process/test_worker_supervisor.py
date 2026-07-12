@@ -12,6 +12,7 @@ import psutil  # type: ignore[import-untyped]
 import pytest
 from tests.fixtures.atomic_job_chain_worker import atomic_job_chain_paths
 
+import agent_platform.infrastructure.workers.supervisor as supervisor_module
 from agent_platform.infrastructure.workers.supervisor import (
     WorkerError,
     WorkerHandle,
@@ -598,6 +599,122 @@ async def test_stop_all_finishes_cleanup_before_propagating_cancellation() -> No
         await supervisor.stop_all()
         for handle in handles:
             await _terminate_process(handle.process)
+
+
+@pytest.mark.parametrize("cancel_stop_all", [False, True])
+async def test_stop_all_waits_for_in_flight_start_and_stops_worker(
+    monkeypatch: pytest.MonkeyPatch,
+    cancel_stop_all: bool,
+) -> None:
+    supervisor = WorkerSupervisor(
+        heartbeat_timeout=timedelta(seconds=10),
+        shutdown_timeout_seconds=0.2,
+    )
+    spawn_entered = asyncio.Event()
+    allow_spawn = asyncio.Event()
+    spawn_count = 0
+    handle: WorkerHandle | None = None
+    late_start_task: asyncio.Task[WorkerHandle] | None = None
+
+    if os.name == "nt":
+        real_spawn = windows_spawn_module.create_windows_job_subprocess_exec
+
+        async def controlled_spawn(
+            job: WindowsJob,
+            *args: str,
+        ) -> asyncio.subprocess.Process:
+            nonlocal spawn_count
+            spawn_count += 1
+            spawn_entered.set()
+            await allow_spawn.wait()
+            return await real_spawn(job, *args)
+
+        monkeypatch.setattr(
+            windows_spawn_module,
+            "create_windows_job_subprocess_exec",
+            controlled_spawn,
+        )
+    else:
+        real_spawn = asyncio.create_subprocess_exec
+
+        async def controlled_spawn(*args: str, **kwargs: object) -> asyncio.subprocess.Process:
+            nonlocal spawn_count
+            spawn_count += 1
+            spawn_entered.set()
+            await allow_spawn.wait()
+            return await real_spawn(*args, **kwargs)
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", controlled_spawn)
+
+    start_task = asyncio.create_task(
+        supervisor.start("project_stop_start_race", "tests.fixtures.silent_worker")
+    )
+    await asyncio.wait_for(spawn_entered.wait(), timeout=1.0)
+    stop_all_task = asyncio.create_task(supervisor.stop_all())
+
+    try:
+        await asyncio.sleep(0)
+
+        assert stop_all_task.done() is False
+        if cancel_stop_all:
+            stop_all_task.cancel()
+            await asyncio.sleep(0)
+            assert stop_all_task.done() is False
+        late_start_task = asyncio.create_task(
+            supervisor.start("project_after_stop_started", "tests.fixtures.silent_worker")
+        )
+        await asyncio.sleep(0)
+
+        allow_spawn.set()
+        handle = await start_task
+        with pytest.raises(WorkerUnavailableError, match="supervisor is unavailable"):
+            await late_start_task
+        if cancel_stop_all:
+            with pytest.raises(asyncio.CancelledError):
+                await stop_all_task
+        else:
+            await stop_all_task
+
+        assert spawn_count == 1
+        assert handle.process.returncode is not None
+        assert supervisor.get(handle.worker_id) is None
+        assert supervisor._workers == {}
+        assert supervisor._projects == {}
+    finally:
+        allow_spawn.set()
+        if handle is None:
+            start_result = await asyncio.gather(start_task, return_exceptions=True)
+            if isinstance(start_result[0], WorkerHandle):
+                handle = start_result[0]
+        if late_start_task is not None:
+            await asyncio.gather(late_start_task, return_exceptions=True)
+        await asyncio.gather(stop_all_task, return_exceptions=True)
+        await asyncio.gather(supervisor.stop_all(), return_exceptions=True)
+        if handle is not None:
+            await _terminate_process(handle.process)
+
+
+async def test_start_is_rejected_after_stop_all_before_allocating_worker_resources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    supervisor = WorkerSupervisor(heartbeat_timeout=timedelta(seconds=10))
+    allocation_attempted = False
+
+    def unexpected_worker_id(_: str) -> str:
+        nonlocal allocation_attempted
+        allocation_attempted = True
+        raise AssertionError("worker allocation started after supervisor shutdown")
+
+    monkeypatch.setattr(supervisor_module, "new_id", unexpected_worker_id)
+
+    await supervisor.stop_all()
+
+    with pytest.raises(WorkerUnavailableError, match="supervisor is unavailable"):
+        await supervisor.start("project_after_stop_all")
+
+    assert allocation_attempted is False
+    assert supervisor._workers == {}
+    assert supervisor._projects == {}
 
 
 async def test_stop_all_waits_for_every_stop_task_before_propagating_error(
