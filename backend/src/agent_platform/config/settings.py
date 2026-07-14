@@ -65,6 +65,17 @@ class Settings(BaseSettings):
         ge=1024 * 1024,
         le=1024 * 1024 * 1024 * 1024,
     )
+    outbox_poll_interval_seconds: float = 0.25
+    outbox_lease_seconds: float = 60.0
+    outbox_publish_timeout_seconds: float = 30.0
+    outbox_max_attempts: int = Field(default=8, ge=1, le=100)
+    outbox_backoff_base_seconds: float = 1.0
+    outbox_backoff_max_seconds: float = 300.0
+    outbox_shutdown_drain_seconds: float = 5.0
+    outbox_cleanup_interval_seconds: float = 3600.0
+    outbox_delivered_retention_days: int = Field(default=30, ge=1, le=3650)
+    outbox_cleanup_batch_size: int = Field(default=100, ge=1, le=10_000)
+    outbox_recovery_batch_size: int = Field(default=100, ge=1, le=10_000)
 
     @field_validator("session_token")
     @classmethod
@@ -83,6 +94,13 @@ class Settings(BaseSettings):
         "database_maintenance_interval_seconds",
         "database_integrity_check_interval_seconds",
         "database_backup_interval_seconds",
+        "outbox_poll_interval_seconds",
+        "outbox_lease_seconds",
+        "outbox_publish_timeout_seconds",
+        "outbox_backoff_base_seconds",
+        "outbox_backoff_max_seconds",
+        "outbox_shutdown_drain_seconds",
+        "outbox_cleanup_interval_seconds",
     )
     @classmethod
     def validate_positive_finite_interval(cls, value: float) -> float:
@@ -101,6 +119,12 @@ class Settings(BaseSettings):
             raise ValueError(
                 "database maintenance interval must not exceed integrity or backup interval"
             )
+        if self.outbox_poll_interval_seconds >= self.outbox_lease_seconds:
+            raise ValueError("outbox poll interval must be shorter than lease duration")
+        if self.outbox_publish_timeout_seconds >= self.outbox_lease_seconds:
+            raise ValueError("outbox publish timeout must be shorter than lease duration")
+        if self.outbox_backoff_base_seconds > self.outbox_backoff_max_seconds:
+            raise ValueError("outbox backoff base must not exceed maximum")
         return self
 
     @property
@@ -138,6 +162,10 @@ class Settings(BaseSettings):
     @property
     def database_backup_retention_age(self) -> timedelta:
         return timedelta(days=self.database_backup_retention_days)
+
+    @property
+    def outbox_delivered_retention_age(self) -> timedelta:
+        return timedelta(days=self.outbox_delivered_retention_days)
 
     def ensure_directories(self) -> None:
         for path in (

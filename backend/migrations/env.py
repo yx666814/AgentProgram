@@ -27,7 +27,12 @@ from agent_platform.infrastructure.database.instance_lock import (  # noqa: E402
 )
 from agent_platform.infrastructure.database.migration_rendering import render_item  # noqa: E402
 
-_MODEL_TABLES = (models.EventLogRow.__table__, models.OutboxEventRow.__table__)
+_MODEL_TABLES = (
+    models.EventLogRow.__table__,
+    models.OutboxEventRow.__table__,
+    models.OutboxDeliveryRow.__table__,
+    models.LocalAuditEventRow.__table__,
+)
 
 config = context.config
 

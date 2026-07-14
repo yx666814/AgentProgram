@@ -7,14 +7,18 @@ from typing import Never
 from fastapi import FastAPI
 from sqlalchemy import text
 
+from agent_platform.application.events.outbox_dispatcher import OutboxDispatcher
 from agent_platform.config.settings import Settings
+from agent_platform.domain.shared.ids import new_id
 from agent_platform.infrastructure.async_cleanup import await_cancellation_resistant
 from agent_platform.infrastructure.database.instance_lock import ApplicationInstanceLock
 from agent_platform.infrastructure.database.integrity import (
     IntegrityCheckMode,
     require_database_integrity,
 )
+from agent_platform.infrastructure.database.local_audit import LocalAuditPublisher
 from agent_platform.infrastructure.database.maintenance import DatabaseMaintenance
+from agent_platform.infrastructure.database.outbox_store import SqlAlchemyOutboxStore
 from agent_platform.infrastructure.database.session import Database, create_database
 from agent_platform.infrastructure.logging.configure import LoggingRuntime, configure_logging
 from agent_platform.infrastructure.redaction import SecretRegistration, register_known_secret
@@ -94,11 +98,34 @@ async def _cancel_database_maintenance(maintenance_task: asyncio.Task[None]) -> 
         raise
 
 
+async def _stop_outbox_dispatcher(
+    dispatcher: OutboxDispatcher,
+    task: asyncio.Task[None],
+    timeout_seconds: float,
+) -> None:
+    dispatcher.request_stop()
+    try:
+        await asyncio.wait_for(asyncio.shield(task), timeout_seconds)
+    except TimeoutError:
+        requested = not task.done() and task.cancelling() == 0
+        if requested:
+            task.cancel()
+        try:
+            await asyncio.wait_for(asyncio.shield(task), 1.0)
+        except asyncio.CancelledError:
+            if requested and task.cancelled():
+                return
+            raise
+
+
 async def _shutdown_resources(
     worker_watchdog_task: asyncio.Task[None] | None,
     worker_supervisor: WorkerSupervisor | None,
     database_maintenance_task: asyncio.Task[None] | None,
     database_maintenance: DatabaseMaintenance | None,
+    outbox_dispatcher: OutboxDispatcher | None,
+    outbox_dispatcher_task: asyncio.Task[None] | None,
+    outbox_shutdown_drain_seconds: float,
     database: Database | None,
     logging_runtime: LoggingRuntime | None,
     secret_registration: SecretRegistration | None,
@@ -126,6 +153,15 @@ async def _shutdown_resources(
     if database_maintenance_task is not None:
         try:
             await _cancel_database_maintenance(database_maintenance_task)
+        except BaseException as error:
+            remember_error(error)
+    if outbox_dispatcher is not None and outbox_dispatcher_task is not None:
+        try:
+            await _stop_outbox_dispatcher(
+                outbox_dispatcher,
+                outbox_dispatcher_task,
+                outbox_shutdown_drain_seconds,
+            )
         except BaseException as error:
             remember_error(error)
     if database_maintenance is not None:
@@ -180,6 +216,8 @@ def _clear_resource_state(app: FastAPI) -> None:
         "database_maintenance",
         "database_maintenance_task",
         "instance_lock",
+        "outbox_dispatcher",
+        "outbox_dispatcher_task",
     ):
         if hasattr(app.state, attribute):
             delattr(app.state, attribute)
@@ -198,6 +236,8 @@ def build_lifespan(
         worker_watchdog_task: asyncio.Task[None] | None = None
         database_maintenance: DatabaseMaintenance | None = None
         database_maintenance_task: asyncio.Task[None] | None = None
+        outbox_dispatcher: OutboxDispatcher | None = None
+        outbox_dispatcher_task: asyncio.Task[None] | None = None
         try:
             settings.ensure_directories()
             instance_lock = ApplicationInstanceLock.acquire(settings.runtime_root)
@@ -242,6 +282,26 @@ def build_lifespan(
                 size_warning_bytes=settings.database_size_warning_bytes,
             )
             database_maintenance_task = asyncio.create_task(database_maintenance.run_forever())
+            if hasattr(database, "sessions"):
+                outbox_store = SqlAlchemyOutboxStore(
+                    database.sessions,
+                    lease_owner=new_id("dispatcher"),
+                    lease_seconds=settings.outbox_lease_seconds,
+                    max_attempts=settings.outbox_max_attempts,
+                    backoff_base_seconds=settings.outbox_backoff_base_seconds,
+                    backoff_max_seconds=settings.outbox_backoff_max_seconds,
+                    recovery_batch_size=settings.outbox_recovery_batch_size,
+                )
+                outbox_dispatcher = OutboxDispatcher(
+                    store=outbox_store,
+                    publishers=(LocalAuditPublisher(database.sessions),),
+                    poll_interval_seconds=settings.outbox_poll_interval_seconds,
+                    publish_timeout_seconds=settings.outbox_publish_timeout_seconds,
+                    cleanup_interval_seconds=settings.outbox_cleanup_interval_seconds,
+                    delivered_retention=settings.outbox_delivered_retention_age,
+                    cleanup_batch_size=settings.outbox_cleanup_batch_size,
+                )
+                outbox_dispatcher_task = asyncio.create_task(outbox_dispatcher.run())
             app.state.database = database
             app.state.worker_supervisor = worker_supervisor
             app.state.worker_watchdog_task = worker_watchdog_task
@@ -249,6 +309,9 @@ def build_lifespan(
             app.state.database_maintenance = database_maintenance
             app.state.database_maintenance_task = database_maintenance_task
             app.state.instance_lock = instance_lock
+            if outbox_dispatcher is not None and outbox_dispatcher_task is not None:
+                app.state.outbox_dispatcher = outbox_dispatcher
+                app.state.outbox_dispatcher_task = outbox_dispatcher_task
         except BaseException as startup_error:
             try:
                 await _await_cleanup_preserving_primary(
@@ -257,6 +320,9 @@ def build_lifespan(
                         worker_supervisor,
                         database_maintenance_task,
                         database_maintenance,
+                        outbox_dispatcher,
+                        outbox_dispatcher_task,
+                        settings.outbox_shutdown_drain_seconds,
                         database,
                         logging_runtime,
                         secret_registration,
@@ -278,6 +344,9 @@ def build_lifespan(
                     worker_supervisor,
                     database_maintenance_task,
                     database_maintenance,
+                    outbox_dispatcher,
+                    outbox_dispatcher_task,
+                    settings.outbox_shutdown_drain_seconds,
                     database,
                     logging_runtime,
                     secret_registration,

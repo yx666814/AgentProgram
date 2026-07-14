@@ -9,8 +9,10 @@ from agent_platform.domain.shared.json_values import validate_json_payload
 NonEmptyString = Annotated[str, Field(min_length=1)]
 EventType = Annotated[
     str,
-    Field(pattern=r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$"),
+    Field(max_length=120, pattern=r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$"),
 ]
+EventContextId = Annotated[str, Field(min_length=1, max_length=120)]
+EventEntityId = Annotated[str, Field(min_length=1, max_length=80)]
 PositiveEventId = Annotated[int, Field(gt=0)]
 
 
@@ -39,7 +41,7 @@ class ActorRef(BaseModel):
     )
 
     type: ActorType
-    id: NonEmptyString | None = None
+    id: EventEntityId | None = None
 
 
 class EventEnvelope(BaseModel):
@@ -53,15 +55,15 @@ class EventEnvelope(BaseModel):
     schema_version: Literal[1]
     event_id: PositiveEventId | None = None
     event_type: EventType
-    correlation_id: NonEmptyString
-    causation_id: NonEmptyString | None = None
+    correlation_id: EventContextId
+    causation_id: EventContextId | None = None
     actor: ActorRef
     source: EventSource
     occurred_at: AwareDatetime
-    project_id: NonEmptyString | None = None
-    workflow_id: NonEmptyString | None = None
-    room_id: NonEmptyString | None = None
-    task_id: NonEmptyString | None = None
+    project_id: EventEntityId | None = None
+    workflow_id: EventEntityId | None = None
+    room_id: EventEntityId | None = None
+    task_id: EventEntityId | None = None
     payload: dict[str, Any]
 
     @field_validator("schema_version", mode="before")

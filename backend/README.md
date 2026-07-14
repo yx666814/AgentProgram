@@ -58,6 +58,11 @@ size warnings. Relevant environment settings use the `AGENT_PLATFORM_DATABASE_` 
 `INTEGRITY_CHECK_INTERVAL_SECONDS`, `BACKUP_INTERVAL_SECONDS`,
 `BACKUP_RETAINED_COUNT`, `BACKUP_RETENTION_DAYS`, and `SIZE_WARNING_BYTES`.
 
+Every persisted `EventEnvelope` is written atomically with one Outbox aggregate and the required
+`local_audit_v1` delivery target. The Dispatcher uses short SQLite leases, bounded retry/backoff,
+dead-letter state, and at-least-once delivery. The local audit projection excludes event payloads
+and records its idempotent side effect and delivery receipt in one transaction.
+
 ## Verification
 
 ```powershell

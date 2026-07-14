@@ -67,6 +67,8 @@ async def test_application_lifespan_manages_database_and_real_worker(
     assert not hasattr(app.state, "database_maintenance")
     assert not hasattr(app.state, "database_maintenance_task")
     assert not hasattr(app.state, "instance_lock")
+    assert not hasattr(app.state, "outbox_dispatcher")
+    assert not hasattr(app.state, "outbox_dispatcher_task")
 
 
 @pytest.mark.asyncio

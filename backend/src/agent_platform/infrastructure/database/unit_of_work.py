@@ -3,22 +3,24 @@ from types import TracebackType
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agent_platform.infrastructure.async_cleanup import await_cancellation_resistant
-from agent_platform.infrastructure.database.repositories import (
-    EventLogRepository,
-    OutboxRepository,
-)
+from agent_platform.infrastructure.database.repositories import EventLogRepository
+from agent_platform.ports.event_publishing import LOCAL_AUDIT_CONSUMER
 
 
 class SqlAlchemyUnitOfWork:
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        delivery_targets: tuple[str, ...] = (LOCAL_AUDIT_CONSUMER,),
+    ) -> None:
         self._session_factory = session_factory
+        self._delivery_targets = delivery_targets
         self._entered = False
         self._active = False
         self._closed = False
         self._committed = False
         self.session: AsyncSession
         self.events: EventLogRepository
-        self.outbox: OutboxRepository
 
     async def __aenter__(self) -> "SqlAlchemyUnitOfWork":
         if self._entered:
@@ -26,8 +28,7 @@ class SqlAlchemyUnitOfWork:
 
         self._entered = True
         self.session = self._session_factory(close_resets_only=False)
-        self.events = EventLogRepository(self.session)
-        self.outbox = OutboxRepository(self.session)
+        self.events = EventLogRepository(self.session, self._delivery_targets)
         self._active = True
         return self
 
