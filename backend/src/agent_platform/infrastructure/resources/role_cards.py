@@ -42,6 +42,8 @@ class PackageRoleCardLoader:
             stage_id = Stage(metadata["stage_id"])
             if role_id is not stage or stage_id is not stage:
                 raise ValueError("role card stage metadata does not match requested stage")
+            if metadata["role_card_version"] != version:
+                raise ValueError("role card metadata version does not match requested version")
             language = metadata["language"]
             if language != "zh-CN":
                 raise ValueError("role card language is not supported")
