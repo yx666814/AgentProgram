@@ -65,6 +65,17 @@ class Settings(BaseSettings):
         ge=1024 * 1024,
         le=1024 * 1024 * 1024 * 1024,
     )
+    checkpoint_max_files: int = Field(default=100_000, ge=1, le=1_000_000)
+    checkpoint_max_file_bytes: int = Field(
+        default=1024 * 1024 * 1024,
+        ge=1,
+        le=1024 * 1024 * 1024 * 1024,
+    )
+    checkpoint_max_total_bytes: int = Field(
+        default=10 * 1024 * 1024 * 1024,
+        ge=1,
+        le=10 * 1024 * 1024 * 1024 * 1024,
+    )
     outbox_poll_interval_seconds: float = 0.25
     outbox_lease_seconds: float = 60.0
     outbox_publish_timeout_seconds: float = 30.0
@@ -125,6 +136,8 @@ class Settings(BaseSettings):
             raise ValueError("outbox publish timeout must be shorter than lease duration")
         if self.outbox_backoff_base_seconds > self.outbox_backoff_max_seconds:
             raise ValueError("outbox backoff base must not exceed maximum")
+        if self.checkpoint_max_file_bytes > self.checkpoint_max_total_bytes:
+            raise ValueError("checkpoint file limit must not exceed total limit")
         return self
 
     @property

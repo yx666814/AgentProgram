@@ -1,8 +1,12 @@
 from agent_platform.domain.projects.models import (
+    CheckpointFile,
+    CheckpointReason,
+    CheckpointRestoreResult,
     PersistedProjectManifest,
     PreflightCheck,
     PreflightStatus,
     Project,
+    ProjectCheckpoint,
     ProjectCommand,
     ProjectManifest,
     ProjectMetadata,
@@ -16,8 +20,12 @@ from agent_platform.domain.projects.models import (
 )
 
 __all__ = [
+    "CheckpointFile",
+    "CheckpointReason",
+    "CheckpointRestoreResult",
     "Project",
     "ProjectCommand",
+    "ProjectCheckpoint",
     "ProjectManifest",
     "ProjectMetadata",
     "PersistedProjectManifest",

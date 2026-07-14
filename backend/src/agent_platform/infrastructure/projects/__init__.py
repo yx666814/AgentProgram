@@ -12,6 +12,8 @@ from agent_platform.infrastructure.projects.paths import (
 )
 
 __all__ = [
+    "CheckpointError",
+    "CheckpointStore",
     "ProjectMetadataError",
     "ProjectMetadataStore",
     "project_document_hash",
@@ -21,3 +23,7 @@ __all__ = [
     "resolve_project_path",
     "validate_direct_workspace_root",
 ]
+from agent_platform.infrastructure.projects.checkpoints import (
+    CheckpointError,
+    CheckpointStore,
+)

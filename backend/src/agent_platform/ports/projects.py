@@ -3,6 +3,7 @@ from typing import Protocol
 from agent_platform.domain.projects import (
     PersistedProjectManifest,
     Project,
+    ProjectCheckpoint,
     ProjectPreflightResult,
     ProjectRegistration,
 )
@@ -37,3 +38,16 @@ class ProjectRepository(Protocol):
     ) -> Project: ...
 
     async def get_latest_preflight(self, project_id: str) -> ProjectPreflightResult | None: ...
+
+    async def record_checkpoint(self, checkpoint: ProjectCheckpoint) -> None: ...
+
+    async def get_checkpoint(self, checkpoint_id: str) -> ProjectCheckpoint | None: ...
+
+    async def list_checkpoints(
+        self,
+        project_id: str,
+        *,
+        limit: int = 100,
+    ) -> tuple[ProjectCheckpoint, ...]: ...
+
+    async def list_referenced_checkpoint_hashes(self) -> frozenset[str]: ...

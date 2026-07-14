@@ -43,6 +43,12 @@ class PreflightStatus(StrEnum):
     FAIL = "fail"
 
 
+class CheckpointReason(StrEnum):
+    MANUAL = "manual"
+    PRE_MUTATION = "pre_mutation"
+    PRE_RESTORE = "pre_restore"
+
+
 class Project(VersionedContractModel):
     id: ContractId
     name: ProjectName
@@ -202,6 +208,48 @@ class ProjectPreflightResult(VersionedContractModel):
         if self.status is not worst_preflight_status(self.checks):
             raise ValueError("preflight status must match the worst check")
         return self
+
+
+class CheckpointFile(FrozenContractModel):
+    relative_path: str
+    content_hash: ContentHash
+    byte_size: int = Field(ge=0)
+
+    @field_validator("relative_path")
+    @classmethod
+    def require_canonical_path(cls, value: object) -> str:
+        return _validate_manifest_path(value)
+
+
+class ProjectCheckpoint(VersionedContractModel):
+    id: ContractId
+    project_id: ContractId
+    manifest_version: PositiveVersion
+    reason: CheckpointReason
+    content_hash: ContentHash
+    files: tuple[CheckpointFile, ...]
+    total_bytes: int = Field(ge=0)
+    created_at: AwareDatetime
+
+    @field_validator("created_at")
+    @classmethod
+    def require_utc_timestamp(cls, value: datetime) -> datetime:
+        return require_utc(value, field_name="checkpoint created_at")
+
+    @model_validator(mode="after")
+    def require_consistent_file_index(self) -> "ProjectCheckpoint":
+        paths = tuple(file.relative_path for file in self.files)
+        if paths != tuple(sorted(paths)) or len(set(paths)) != len(paths):
+            raise ValueError("checkpoint files must use unique sorted paths")
+        if self.total_bytes != sum(file.byte_size for file in self.files):
+            raise ValueError("checkpoint total_bytes does not match file index")
+        return self
+
+
+class CheckpointRestoreResult(VersionedContractModel):
+    restored_checkpoint_id: ContractId
+    protection_checkpoint_id: ContractId
+    restored_file_count: int = Field(ge=0)
 
 
 def canonical_manifest_document(manifest: ProjectManifest) -> dict[str, Any]:

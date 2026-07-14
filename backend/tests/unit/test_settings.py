@@ -175,3 +175,13 @@ def test_database_maintenance_interval_must_fit_scheduled_work(tmp_path: Path) -
             database_maintenance_interval_seconds=120,
             database_integrity_check_interval_seconds=60,
         )
+
+
+def test_checkpoint_file_limit_must_fit_total_limit(tmp_path: Path) -> None:
+    with pytest.raises(ValidationError, match="checkpoint file limit"):
+        Settings(
+            data_root=tmp_path,
+            session_token="local-secret",
+            checkpoint_max_file_bytes=1024,
+            checkpoint_max_total_bytes=512,
+        )

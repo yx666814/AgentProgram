@@ -215,3 +215,44 @@ class ProjectPreflightRow(Base):
     checks: Mapped[list[dict[str, object]]] = mapped_column(JSON, nullable=False)
     started_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     completed_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class ProjectCheckpointRow(Base):
+    __tablename__ = "project_checkpoints"
+    __table_args__ = (
+        CheckConstraint("file_count >= 0", name="ck_project_checkpoints_file_count"),
+        CheckConstraint("total_bytes >= 0", name="ck_project_checkpoints_total_bytes"),
+        Index("ix_project_checkpoints_latest", "project_id", "created_at"),
+        Index("ix_project_checkpoints_content_hash", "content_hash"),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    manifest_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str] = mapped_column(String(20), nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    file_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class CheckpointFileRow(Base):
+    __tablename__ = "checkpoint_files"
+    __table_args__ = (
+        CheckConstraint("byte_size >= 0", name="ck_checkpoint_files_byte_size"),
+        Index("ix_checkpoint_files_content_hash", "content_hash"),
+    )
+
+    checkpoint_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("project_checkpoints.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    relative_path: Mapped[str] = mapped_column(Text, primary_key=True)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
