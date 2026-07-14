@@ -3,6 +3,7 @@ from typing import cast
 from fastapi import Depends, FastAPI
 from starlette.types import ASGIApp
 
+from agent_platform import __version__
 from agent_platform.bootstrap.lifespan import build_lifespan
 from agent_platform.config.settings import Settings
 from agent_platform.interfaces.api.auth import require_session
@@ -30,7 +31,7 @@ class AgentPlatformFastAPI(FastAPI):
 def create_app(settings: Settings) -> FastAPI:
     app = AgentPlatformFastAPI(
         title="Agent Platform Backend",
-        version="0.1.0",
+        version=__version__,
         lifespan=build_lifespan(settings),
     )
     app.state.settings = settings
