@@ -67,3 +67,55 @@ def test_settings_rejects_non_loopback_host(tmp_path: Path) -> None:
 def test_settings_rejects_invalid_port(tmp_path: Path, port: int) -> None:
     with pytest.raises(ValidationError):
         Settings(data_root=tmp_path, session_token="local-secret", port=port)
+
+
+@pytest.mark.parametrize(
+    "interval",
+    [0.0, -0.1, float("nan"), float("inf"), float("-inf")],
+)
+def test_settings_rejects_invalid_watchdog_interval(
+    tmp_path: Path,
+    interval: float,
+) -> None:
+    with pytest.raises(ValidationError, match="positive finite"):
+        Settings(
+            data_root=tmp_path,
+            session_token="local-secret",
+            worker_watchdog_interval_seconds=interval,
+        )
+
+
+@pytest.mark.parametrize(
+    "interval",
+    [0.0, -0.1, float("nan"), float("inf"), float("-inf")],
+)
+def test_settings_rejects_invalid_heartbeat_timeout(
+    tmp_path: Path,
+    interval: float,
+) -> None:
+    with pytest.raises(ValidationError, match="positive finite"):
+        Settings(
+            data_root=tmp_path,
+            session_token="local-secret",
+            worker_heartbeat_timeout_seconds=interval,
+        )
+
+
+def test_settings_accepts_valid_watchdog_interval(tmp_path: Path) -> None:
+    settings = Settings(
+        data_root=tmp_path,
+        session_token="local-secret",
+        worker_watchdog_interval_seconds=0.5,
+    )
+
+    assert settings.worker_watchdog_interval_seconds == 0.5
+
+
+def test_watchdog_interval_must_be_shorter_than_heartbeat_timeout(tmp_path: Path) -> None:
+    with pytest.raises(ValidationError, match="shorter than heartbeat timeout"):
+        Settings(
+            data_root=tmp_path,
+            session_token="local-secret",
+            worker_watchdog_interval_seconds=15.0,
+            worker_heartbeat_timeout_seconds=15.0,
+        )

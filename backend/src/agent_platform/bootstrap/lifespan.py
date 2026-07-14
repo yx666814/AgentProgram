@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from datetime import timedelta
@@ -20,10 +21,7 @@ async def _probe_database(database: Database) -> None:
         await connection.execute(text("SELECT 1"))
 
 
-def _raise_primary_with_cleanup_failure(
-    primary_error: BaseException,
-    cleanup_error: BaseException,
-) -> Never:
+def _add_cleanup_failure_note(primary_error: BaseException) -> None:
     original_cause = primary_error.__cause__
     original_context = primary_error.__context__
     original_suppress_context = primary_error.__suppress_context__
@@ -34,29 +32,72 @@ def _raise_primary_with_cleanup_failure(
     primary_error.__cause__ = original_cause
     primary_error.__context__ = original_context
     primary_error.__suppress_context__ = original_suppress_context
+
+
+def _raise_primary_with_cleanup_failure(
+    primary_error: BaseException,
+    cleanup_error: BaseException,
+) -> Never:
+    del cleanup_error
+    _add_cleanup_failure_note(primary_error)
     raise primary_error
 
 
+async def _run_worker_watchdog(
+    supervisor: WorkerSupervisor,
+    interval_seconds: float,
+) -> None:
+    while True:
+        await asyncio.sleep(interval_seconds)
+        await supervisor.watch_once()
+
+
+def _start_worker_watchdog(
+    supervisor: WorkerSupervisor,
+    interval_seconds: float,
+) -> asyncio.Task[None]:
+    return asyncio.create_task(_run_worker_watchdog(supervisor, interval_seconds))
+
+
+async def _cancel_worker_watchdog(watchdog_task: asyncio.Task[None]) -> None:
+    watchdog_task.cancel()
+    try:
+        await watchdog_task
+    except asyncio.CancelledError:
+        if not watchdog_task.cancelled():
+            raise
+
+
 async def _shutdown_resources(
-    worker_supervisor: WorkerSupervisor,
+    worker_watchdog_task: asyncio.Task[None] | None,
+    worker_supervisor: WorkerSupervisor | None,
     database: Database,
 ) -> None:
-    stop_error: BaseException | None = None
-    try:
-        await worker_supervisor.stop_all()
-    except BaseException as error:
-        stop_error = error
-    dispose_error: BaseException | None = None
+    first_error: BaseException | None = None
+
+    def remember_error(error: BaseException) -> None:
+        nonlocal first_error
+        if first_error is None:
+            first_error = error
+        else:
+            _add_cleanup_failure_note(first_error)
+
+    if worker_watchdog_task is not None:
+        try:
+            await _cancel_worker_watchdog(worker_watchdog_task)
+        except BaseException as error:
+            remember_error(error)
+    if worker_supervisor is not None:
+        try:
+            await worker_supervisor.stop_all()
+        except BaseException as error:
+            remember_error(error)
     try:
         await database.dispose()
     except BaseException as error:
-        dispose_error = error
-    if stop_error is not None:
-        if dispose_error is not None:
-            _raise_primary_with_cleanup_failure(stop_error, dispose_error)
-        raise stop_error
-    if dispose_error is not None:
-        raise dispose_error
+        remember_error(error)
+    if first_error is not None:
+        raise first_error
 
 
 async def _await_cleanup_preserving_primary(
@@ -74,7 +115,7 @@ async def _await_cleanup_preserving_primary(
 
 
 def _clear_resource_state(app: FastAPI) -> None:
-    for attribute in ("worker_supervisor", "database"):
+    for attribute in ("worker_watchdog_task", "worker_supervisor", "database"):
         if hasattr(app.state, attribute):
             delattr(app.state, attribute)
 
@@ -87,17 +128,28 @@ def build_lifespan(
         settings.ensure_directories()
         configure_logging(settings.log_root, settings.log_level)
         database = create_database(settings.database_path)
+        worker_supervisor: WorkerSupervisor | None = None
+        worker_watchdog_task: asyncio.Task[None] | None = None
         try:
             await _probe_database(database)
             worker_supervisor = WorkerSupervisor(
                 heartbeat_timeout=timedelta(seconds=settings.worker_heartbeat_timeout_seconds)
             )
+            worker_watchdog_task = _start_worker_watchdog(
+                worker_supervisor,
+                settings.worker_watchdog_interval_seconds,
+            )
             app.state.database = database
             app.state.worker_supervisor = worker_supervisor
+            app.state.worker_watchdog_task = worker_watchdog_task
         except BaseException as startup_error:
             try:
                 await _await_cleanup_preserving_primary(
-                    database.dispose(),
+                    _shutdown_resources(
+                        worker_watchdog_task,
+                        worker_supervisor,
+                        database,
+                    ),
                     startup_error,
                 )
             finally:
@@ -109,7 +161,11 @@ def build_lifespan(
             body_error = error
         finally:
             try:
-                cleanup = _shutdown_resources(worker_supervisor, database)
+                cleanup = _shutdown_resources(
+                    worker_watchdog_task,
+                    worker_supervisor,
+                    database,
+                )
                 if body_error is None:
                     await await_cancellation_resistant(cleanup)
                 else:

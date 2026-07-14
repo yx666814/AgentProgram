@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import math
 import os
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -29,6 +30,7 @@ class Settings(BaseSettings):
     session_token: str = Field(repr=False, exclude=True)
     log_level: str = "INFO"
     worker_heartbeat_timeout_seconds: float = 15.0
+    worker_watchdog_interval_seconds: float = 1.0
 
     @field_validator("session_token")
     @classmethod
@@ -38,6 +40,22 @@ class Settings(BaseSettings):
         if not value.isascii():
             raise ValueError("session_token must contain only ASCII characters")
         return value
+
+    @field_validator(
+        "worker_heartbeat_timeout_seconds",
+        "worker_watchdog_interval_seconds",
+    )
+    @classmethod
+    def validate_positive_finite_interval(cls, value: float) -> float:
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError("worker interval must be a positive finite number")
+        return value
+
+    @model_validator(mode="after")
+    def watchdog_must_run_before_timeout(self) -> Self:
+        if self.worker_watchdog_interval_seconds >= self.worker_heartbeat_timeout_seconds:
+            raise ValueError("worker watchdog interval must be shorter than heartbeat timeout")
+        return self
 
     @property
     def database_path(self) -> Path:
