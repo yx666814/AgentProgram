@@ -7,7 +7,9 @@ from sqlalchemy.exc import IntegrityError
 
 from agent_platform.domain.events import ActorRef, ActorType, EventEnvelope, EventSource
 from agent_platform.domain.projects import (
+    PersistedProjectManifest,
     Project,
+    ProjectManifest,
     ProjectRegistration,
     ProjectStatus,
     Workspace,
@@ -15,6 +17,9 @@ from agent_platform.domain.projects import (
 )
 from agent_platform.infrastructure.database.base import Base
 from agent_platform.infrastructure.database.models import EventLogRow, ProjectRow
+from agent_platform.infrastructure.database.project_repository import (
+    ProjectManifestConflictError,
+)
 from agent_platform.infrastructure.database.session import create_database
 from agent_platform.infrastructure.database.unit_of_work import SqlAlchemyUnitOfWork
 
@@ -176,3 +181,51 @@ async def test_workspace_root_is_unique_and_projects_list_newest_first(
         await database.dispose()
 
     assert [item.project.id for item in projects] == ["project_3", "project_1"]
+
+
+@pytest.mark.asyncio
+async def test_manifest_round_trip_and_optimistic_version(tmp_path: Path) -> None:
+    database = create_database(tmp_path / "agent.db")
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    registration = _registration(workspace_root)
+    now = datetime.now(UTC)
+    first = PersistedProjectManifest(
+        schema_version=1,
+        manifest=ProjectManifest(
+            schema_version=1,
+            project_id="project_1",
+            manifest_version=1,
+            source_paths=("src",),
+        ),
+        content_hash="a" * 64,
+        updated_at=now,
+    )
+    second = PersistedProjectManifest(
+        schema_version=1,
+        manifest=first.manifest.model_copy(
+            update={"manifest_version": 2, "source_paths": ("backend",)}
+        ),
+        content_hash="b" * 64,
+        updated_at=now + timedelta(seconds=1),
+    )
+    try:
+        async with database.engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        async with SqlAlchemyUnitOfWork(database.sessions) as uow:
+            await uow.projects.add(registration)
+            await uow.projects.save_manifest(first, expected_version=None)
+            await uow.commit()
+        async with SqlAlchemyUnitOfWork(database.sessions) as uow:
+            await uow.projects.save_manifest(second, expected_version=1)
+            await uow.commit()
+        async with SqlAlchemyUnitOfWork(database.sessions) as uow:
+            persisted = await uow.projects.get_manifest("project_1")
+        with pytest.raises(ProjectManifestConflictError):
+            async with SqlAlchemyUnitOfWork(database.sessions) as uow:
+                await uow.projects.save_manifest(second, expected_version=1)
+                await uow.commit()
+    finally:
+        await database.dispose()
+
+    assert persisted == second

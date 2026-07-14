@@ -6,6 +6,8 @@ from pydantic import ValidationError
 
 from agent_platform.domain.projects import (
     Project,
+    ProjectCommand,
+    ProjectManifest,
     ProjectRegistration,
     ProjectStatus,
     Workspace,
@@ -89,4 +91,54 @@ def test_registration_rejects_workspace_for_another_project(tmp_path: Path) -> N
             schema_version=1,
             project=_project(now),
             workspace=workspace,
+        )
+
+
+def test_manifest_accepts_canonical_paths_and_structured_commands() -> None:
+    manifest = ProjectManifest(
+        schema_version=1,
+        project_id="project_1",
+        manifest_version=1,
+        source_paths=("src",),
+        excluded_paths=("secrets/local.env",),
+        instruction_paths=("AGENTS.md",),
+        test_commands=(
+            ProjectCommand(
+                schema_version=1,
+                argv=("python", "-m", "pytest"),
+                working_directory="backend",
+            ),
+        ),
+    )
+
+    assert manifest.test_commands[0].argv == ("python", "-m", "pytest")
+
+
+@pytest.mark.parametrize(
+    "path",
+    ("../outside", "/absolute", "bad\\windows", ".agent/manifest.json", "src//app"),
+)
+def test_manifest_rejects_noncanonical_or_reserved_paths(path: str) -> None:
+    with pytest.raises(ValidationError):
+        ProjectManifest(
+            schema_version=1,
+            project_id="project_1",
+            manifest_version=1,
+            source_paths=(path,),
+        )
+
+
+def test_manifest_rejects_duplicate_paths_and_shell_strings() -> None:
+    with pytest.raises(ValidationError):
+        ProjectManifest(
+            schema_version=1,
+            project_id="project_1",
+            manifest_version=1,
+            source_paths=("src", "src"),
+        )
+
+    with pytest.raises(ValidationError):
+        ProjectCommand(
+            schema_version=1,
+            argv=("python -m pytest", " "),
         )

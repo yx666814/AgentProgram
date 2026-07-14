@@ -1,6 +1,6 @@
 from typing import Protocol
 
-from agent_platform.domain.projects import ProjectRegistration
+from agent_platform.domain.projects import PersistedProjectManifest, ProjectRegistration
 
 
 class ProjectRepository(Protocol):
@@ -14,3 +14,12 @@ class ProjectRepository(Protocol):
         self,
         canonical_root_path: str,
     ) -> ProjectRegistration | None: ...
+
+    async def save_manifest(
+        self,
+        persisted: PersistedProjectManifest,
+        *,
+        expected_version: int | None,
+    ) -> None: ...
+
+    async def get_manifest(self, project_id: str) -> PersistedProjectManifest | None: ...
