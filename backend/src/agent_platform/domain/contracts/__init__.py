@@ -30,6 +30,10 @@ from agent_platform.domain.contracts.stage_contracts import (
     StagePathPolicy,
     StagePathScope,
 )
+from agent_platform.domain.contracts.stage_registry import (
+    get_stage_contract,
+    load_stage_contracts,
+)
 from agent_platform.domain.contracts.stages import STAGE_ORDER, Stage, predecessor, successor
 from agent_platform.domain.contracts.tools import (
     ToolExecutionRequest,
@@ -68,6 +72,8 @@ __all__ = [
     "ToolFailure",
     "ToolResult",
     "VersionedContractModel",
+    "get_stage_contract",
+    "load_stage_contracts",
     "PromptLayer",
     "predecessor",
     "require_project_relative_path",
