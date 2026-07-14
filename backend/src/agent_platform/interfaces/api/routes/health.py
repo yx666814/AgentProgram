@@ -5,12 +5,14 @@ from pydantic import BaseModel
 from sqlalchemy import inspect, text
 
 from agent_platform import __version__
+from agent_platform.infrastructure.database.schema import (
+    CURRENT_DATABASE_REVISION,
+    REQUIRED_DATABASE_TABLES,
+)
 from agent_platform.infrastructure.database.session import Database
 from agent_platform.interfaces.api.errors import PublicHttpError
 
 router = APIRouter()
-EXPECTED_DATABASE_REVISION = "0001_foundation"
-REQUIRED_DATABASE_TABLES = {"alembic_version", "event_log", "outbox_events"}
 
 
 class SystemInfoResponse(BaseModel):
@@ -42,7 +44,7 @@ async def readiness(request: Request) -> dict[str, Literal["ready"]]:
             revision = (
                 await connection.execute(text("SELECT version_num FROM alembic_version"))
             ).scalar_one()
-            if revision != EXPECTED_DATABASE_REVISION:
+            if revision != CURRENT_DATABASE_REVISION:
                 raise RuntimeError("foundation database revision is unavailable")
     except Exception:
         raise PublicHttpError(

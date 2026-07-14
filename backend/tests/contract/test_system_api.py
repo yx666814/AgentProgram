@@ -17,6 +17,7 @@ from starlette.responses import Response
 
 import agent_platform
 import agent_platform.bootstrap.lifespan as lifespan_module
+import agent_platform.interfaces.api.routes.health as health_module
 from agent_platform.bootstrap.app_factory import create_app
 from agent_platform.config.settings import Settings
 from agent_platform.domain.shared.errors import DomainError, ErrorCategory
@@ -242,6 +243,30 @@ async def test_readiness_uses_lifespan_database_and_disposes_it(tmp_path: Path) 
     assert response.status_code == 200
     assert response.json() == {"status": "ready", "database": "ready"}
     assert not hasattr(app.state, "database")
+
+
+@pytest.mark.asyncio
+async def test_readiness_uses_shared_current_database_revision(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _apply_foundation_migration(tmp_path)
+    monkeypatch.setattr(
+        health_module,
+        "CURRENT_DATABASE_REVISION",
+        "sentinel_revision",
+    )
+    app = create_app(_settings(tmp_path))
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            response = await client.get("/api/v1/readiness", headers=AUTHORIZATION)
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "readiness.unavailable"
 
 
 @pytest.mark.asyncio

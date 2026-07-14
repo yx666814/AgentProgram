@@ -1,12 +1,29 @@
 from __future__ import annotations
 
+import importlib.util
 import os
 import sqlite3
 import subprocess
 import sys
 from pathlib import Path
+from types import ModuleType
+
+from agent_platform.infrastructure.database.schema import (
+    CURRENT_DATABASE_REVISION,
+    REQUIRED_DATABASE_TABLES,
+)
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _load_foundation_module() -> ModuleType:
+    path = BACKEND_ROOT / "migrations/versions/0001_foundation.py"
+    spec = importlib.util.spec_from_file_location("foundation_0001", path)
+    if spec is None or spec.loader is None:
+        raise AssertionError("foundation migration could not be loaded")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _table_names(database_path: Path) -> set[str]:
@@ -29,6 +46,14 @@ def _run_alembic(*arguments: str, data_root: Path) -> None:
         text=True,
         timeout=30,
     )
+
+
+def test_foundation_migration_uses_current_revision_constant() -> None:
+    assert _load_foundation_module().revision == CURRENT_DATABASE_REVISION
+
+
+def test_required_foundation_tables_are_shared() -> None:
+    assert REQUIRED_DATABASE_TABLES == frozenset({"alembic_version", "event_log", "outbox_events"})
 
 
 def test_foundation_migration_upgrades_and_downgrades_cleanly(tmp_path: Path) -> None:
