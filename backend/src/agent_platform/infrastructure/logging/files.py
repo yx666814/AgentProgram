@@ -52,11 +52,17 @@ def prune_stale_log_files(
     log_root: Path,
     *,
     retention_age: timedelta,
+    max_entries: int | None = None,
     now: datetime | None = None,
 ) -> None:
     resolved_root = _validate_log_root(log_root)
     cutoff = (now or datetime.now(UTC)) - retention_age
-    for candidate in log_root.iterdir():
+    candidates: list[Path] = []
+    for index, candidate in enumerate(log_root.iterdir()):
+        if max_entries is not None and index >= max_entries:
+            return
+        candidates.append(candidate)
+    for candidate in candidates:
         if _ROTATED_LOG_NAME.fullmatch(candidate.name) is None:
             continue
         try:

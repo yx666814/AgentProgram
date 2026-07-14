@@ -9,6 +9,12 @@ from sqlalchemy import text
 
 from agent_platform.config.settings import Settings
 from agent_platform.infrastructure.async_cleanup import await_cancellation_resistant
+from agent_platform.infrastructure.database.instance_lock import ApplicationInstanceLock
+from agent_platform.infrastructure.database.integrity import (
+    IntegrityCheckMode,
+    require_database_integrity,
+)
+from agent_platform.infrastructure.database.maintenance import DatabaseMaintenance
 from agent_platform.infrastructure.database.session import Database, create_database
 from agent_platform.infrastructure.logging.configure import LoggingRuntime, configure_logging
 from agent_platform.infrastructure.redaction import SecretRegistration, register_known_secret
@@ -74,12 +80,29 @@ async def _cancel_worker_watchdog(watchdog_task: asyncio.Task[None]) -> None:
         raise
 
 
+async def _cancel_database_maintenance(maintenance_task: asyncio.Task[None]) -> None:
+    cancellation_requested_by_shutdown = (
+        not maintenance_task.done() and maintenance_task.cancelling() == 0
+    )
+    if cancellation_requested_by_shutdown:
+        maintenance_task.cancel()
+    try:
+        await maintenance_task
+    except asyncio.CancelledError:
+        if cancellation_requested_by_shutdown and maintenance_task.cancelled():
+            return
+        raise
+
+
 async def _shutdown_resources(
     worker_watchdog_task: asyncio.Task[None] | None,
     worker_supervisor: WorkerSupervisor | None,
+    database_maintenance_task: asyncio.Task[None] | None,
+    database_maintenance: DatabaseMaintenance | None,
     database: Database | None,
     logging_runtime: LoggingRuntime | None,
     secret_registration: SecretRegistration | None,
+    instance_lock: ApplicationInstanceLock | None,
 ) -> None:
     first_error: BaseException | None = None
 
@@ -100,6 +123,16 @@ async def _shutdown_resources(
             await worker_supervisor.stop_all()
         except BaseException as error:
             remember_error(error)
+    if database_maintenance_task is not None:
+        try:
+            await _cancel_database_maintenance(database_maintenance_task)
+        except BaseException as error:
+            remember_error(error)
+    if database_maintenance is not None:
+        try:
+            await database_maintenance.final_checkpoint()
+        except BaseException as error:
+            remember_error(error)
     if database is not None:
         try:
             await database.dispose()
@@ -113,6 +146,11 @@ async def _shutdown_resources(
     if secret_registration is not None:
         try:
             secret_registration.close()
+        except BaseException as error:
+            remember_error(error)
+    if instance_lock is not None:
+        try:
+            instance_lock.release()
         except BaseException as error:
             remember_error(error)
     if first_error is not None:
@@ -139,6 +177,9 @@ def _clear_resource_state(app: FastAPI) -> None:
         "worker_supervisor",
         "database",
         "logging_runtime",
+        "database_maintenance",
+        "database_maintenance_task",
+        "instance_lock",
     ):
         if hasattr(app.state, attribute):
             delattr(app.state, attribute)
@@ -149,13 +190,17 @@ def build_lifespan(
 ) -> Callable[[FastAPI], AbstractAsyncContextManager[None]]:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        instance_lock: ApplicationInstanceLock | None = None
         secret_registration: SecretRegistration | None = None
         logging_runtime: LoggingRuntime | None = None
         database: Database | None = None
         worker_supervisor: WorkerSupervisor | None = None
         worker_watchdog_task: asyncio.Task[None] | None = None
+        database_maintenance: DatabaseMaintenance | None = None
+        database_maintenance_task: asyncio.Task[None] | None = None
         try:
             settings.ensure_directories()
+            instance_lock = ApplicationInstanceLock.acquire(settings.runtime_root)
             secret_registration = register_known_secret(settings.session_token)
             logging_runtime = configure_logging(
                 settings.log_root,
@@ -169,6 +214,11 @@ def build_lifespan(
             )
             database = create_database(settings.database_path)
             await _probe_database(database)
+            await require_database_integrity(
+                settings.database_path,
+                IntegrityCheckMode.QUICK,
+                settings.database_operation_timeout_seconds,
+            )
             worker_supervisor = WorkerSupervisor(
                 heartbeat_timeout=timedelta(seconds=settings.worker_heartbeat_timeout_seconds),
                 ipc_replay_window_capacity=settings.worker_ipc_replay_window_capacity,
@@ -177,19 +227,40 @@ def build_lifespan(
                 worker_supervisor,
                 settings.worker_watchdog_interval_seconds,
             )
+            database_maintenance = DatabaseMaintenance(
+                database_path=settings.database_path,
+                backup_root=settings.backup_root,
+                log_root=settings.log_root,
+                operation_timeout_seconds=settings.database_operation_timeout_seconds,
+                maintenance_interval_seconds=settings.database_maintenance_interval_seconds,
+                integrity_interval_seconds=settings.database_integrity_check_interval_seconds,
+                backup_interval_seconds=settings.database_backup_interval_seconds,
+                backup_retain_count=settings.database_backup_retained_count,
+                backup_retention_age=settings.database_backup_retention_age,
+                log_retention_age=settings.log_file_retention_age,
+                max_entries_per_run=settings.database_maintenance_max_entries_per_run,
+                size_warning_bytes=settings.database_size_warning_bytes,
+            )
+            database_maintenance_task = asyncio.create_task(database_maintenance.run_forever())
             app.state.database = database
             app.state.worker_supervisor = worker_supervisor
             app.state.worker_watchdog_task = worker_watchdog_task
             app.state.logging_runtime = logging_runtime
+            app.state.database_maintenance = database_maintenance
+            app.state.database_maintenance_task = database_maintenance_task
+            app.state.instance_lock = instance_lock
         except BaseException as startup_error:
             try:
                 await _await_cleanup_preserving_primary(
                     _shutdown_resources(
                         worker_watchdog_task,
                         worker_supervisor,
+                        database_maintenance_task,
+                        database_maintenance,
                         database,
                         logging_runtime,
                         secret_registration,
+                        instance_lock,
                     ),
                     startup_error,
                 )
@@ -205,9 +276,12 @@ def build_lifespan(
                 cleanup = _shutdown_resources(
                     worker_watchdog_task,
                     worker_supervisor,
+                    database_maintenance_task,
+                    database_maintenance,
                     database,
                     logging_runtime,
                     secret_registration,
+                    instance_lock,
                 )
                 if body_error is None:
                     await await_cancellation_resistant(cleanup)

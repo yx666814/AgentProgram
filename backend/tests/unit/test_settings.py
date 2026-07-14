@@ -165,3 +165,13 @@ def test_settings_rejects_invalid_ipc_replay_capacity(tmp_path: Path, capacity: 
             session_token="local-secret",
             worker_ipc_replay_window_capacity=capacity,
         )
+
+
+def test_database_maintenance_interval_must_fit_scheduled_work(tmp_path: Path) -> None:
+    with pytest.raises(ValidationError, match="database maintenance interval"):
+        Settings(
+            data_root=tmp_path,
+            session_token="local-secret",
+            database_maintenance_interval_seconds=120,
+            database_integrity_check_interval_seconds=60,
+        )

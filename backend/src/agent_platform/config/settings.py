@@ -53,6 +53,18 @@ class Settings(BaseSettings):
         ge=MIN_REPLAY_WINDOW_CAPACITY,
         le=MAX_REPLAY_WINDOW_CAPACITY,
     )
+    database_operation_timeout_seconds: float = 30.0
+    database_maintenance_interval_seconds: float = 300.0
+    database_integrity_check_interval_seconds: float = 86_400.0
+    database_backup_interval_seconds: float = 86_400.0
+    database_backup_retained_count: int = Field(default=7, ge=1, le=100)
+    database_backup_retention_days: int = Field(default=30, ge=1, le=3650)
+    database_maintenance_max_entries_per_run: int = Field(default=256, ge=1, le=10_000)
+    database_size_warning_bytes: int = Field(
+        default=1024 * 1024 * 1024,
+        ge=1024 * 1024,
+        le=1024 * 1024 * 1024 * 1024,
+    )
 
     @field_validator("session_token")
     @classmethod
@@ -67,6 +79,10 @@ class Settings(BaseSettings):
         "worker_heartbeat_timeout_seconds",
         "worker_watchdog_interval_seconds",
         "log_shutdown_drain_seconds",
+        "database_operation_timeout_seconds",
+        "database_maintenance_interval_seconds",
+        "database_integrity_check_interval_seconds",
+        "database_backup_interval_seconds",
     )
     @classmethod
     def validate_positive_finite_interval(cls, value: float) -> float:
@@ -78,6 +94,13 @@ class Settings(BaseSettings):
     def watchdog_must_run_before_timeout(self) -> Self:
         if self.worker_watchdog_interval_seconds >= self.worker_heartbeat_timeout_seconds:
             raise ValueError("worker watchdog interval must be shorter than heartbeat timeout")
+        if self.database_maintenance_interval_seconds > min(
+            self.database_integrity_check_interval_seconds,
+            self.database_backup_interval_seconds,
+        ):
+            raise ValueError(
+                "database maintenance interval must not exceed integrity or backup interval"
+            )
         return self
 
     @property
@@ -111,6 +134,10 @@ class Settings(BaseSettings):
     @property
     def log_shutdown_drain_timeout(self) -> timedelta:
         return timedelta(seconds=self.log_shutdown_drain_seconds)
+
+    @property
+    def database_backup_retention_age(self) -> timedelta:
+        return timedelta(days=self.database_backup_retention_days)
 
     def ensure_directories(self) -> None:
         for path in (

@@ -50,6 +50,14 @@ retained only as SHA-256 digests in a per-process replay window. Configure its c
 `AGENT_PLATFORM_WORKER_IPC_REPLAY_WINDOW_CAPACITY` (default `4096`, supported `64`–`65536`).
 Wire message IDs are limited to 128 characters; the IPC protocol version remains `1`.
 
+The Backend and online Alembic migrations share `runtime/backend.lock`, so one data root has only
+one owner. Startup runs SQLite `quick_check`; background maintenance performs bounded WAL
+checkpoints, integrity checks, verified SQLite backups under `backups/`, retention, and database
+size warnings. Relevant environment settings use the `AGENT_PLATFORM_DATABASE_` prefix, including
+`OPERATION_TIMEOUT_SECONDS`, `MAINTENANCE_INTERVAL_SECONDS`,
+`INTEGRITY_CHECK_INTERVAL_SECONDS`, `BACKUP_INTERVAL_SECONDS`,
+`BACKUP_RETAINED_COUNT`, `BACKUP_RETENTION_DAYS`, and `SIZE_WARNING_BYTES`.
+
 ## Verification
 
 ```powershell

@@ -9,6 +9,7 @@ import pytest
 import agent_platform.bootstrap.lifespan as lifespan_module
 from agent_platform.bootstrap.app_factory import create_app
 from agent_platform.config.settings import Settings
+from agent_platform.infrastructure.database.instance_lock import InstanceLockUnavailableError
 from agent_platform.infrastructure.database.session import Database, create_database
 from agent_platform.infrastructure.workers.supervisor import WorkerSupervisor
 
@@ -63,6 +64,28 @@ async def test_application_lifespan_manages_database_and_real_worker(
     assert supervisor.get(handle.worker_id) is None
     assert not hasattr(app.state, "database")
     assert not hasattr(app.state, "worker_supervisor")
+    assert not hasattr(app.state, "database_maintenance")
+    assert not hasattr(app.state, "database_maintenance_task")
+    assert not hasattr(app.state, "instance_lock")
+
+
+@pytest.mark.asyncio
+async def test_application_lifespan_exclusively_owns_data_root_and_releases_it(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path)
+    first = create_app(settings)
+    second = create_app(settings)
+
+    async with first.router.lifespan_context(first):
+        assert hasattr(first.state, "instance_lock")
+        assert hasattr(first.state, "database_maintenance_task")
+        with pytest.raises(InstanceLockUnavailableError):
+            async with second.router.lifespan_context(second):
+                pass
+
+    async with second.router.lifespan_context(second):
+        assert hasattr(second.state, "instance_lock")
 
 
 @pytest.mark.asyncio
