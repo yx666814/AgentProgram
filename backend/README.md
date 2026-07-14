@@ -21,13 +21,17 @@ placeholder and must be replaced for each environment.
 ```powershell
 $env:AGENT_PLATFORM_SESSION_TOKEN = "change-me-for-local-development"
 $env:AGENT_PLATFORM_DATA_ROOT = "$env:LOCALAPPDATA\AgentProgram"
+$env:AGENT_PLATFORM_HOST = "127.0.0.1"
+$env:AGENT_PLATFORM_PORT = "0"
 
 uv run alembic upgrade head
-uv run uvicorn agent_platform.bootstrap.app_factory:dev_app --factory
+uv run agent-platform-backend
 ```
 
-`dev_app()` reads both settings from the environment. Apply migrations before starting the API;
-the production lifespan does not create database tables.
+The launcher reads all settings from the environment. The V1 backend only accepts the loopback
+host `127.0.0.1`; port `0` lets the operating system select an available local port. Apply
+migrations before starting the API because the production lifespan does not create database
+tables.
 
 ## Verification
 

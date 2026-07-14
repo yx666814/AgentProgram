@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -22,8 +23,8 @@ class Settings(BaseSettings):
         hide_input_in_errors=True,
     )
 
-    host: str = "127.0.0.1"
-    port: int = 0
+    host: Literal["127.0.0.1"] = "127.0.0.1"
+    port: int = Field(default=0, ge=0, le=65535)
     data_root: Path = Field(default_factory=default_data_root)
     session_token: str = Field(repr=False, exclude=True)
     log_level: str = "INFO"

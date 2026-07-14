@@ -1,5 +1,8 @@
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from agent_platform.config.settings import Settings
 
 
@@ -49,3 +52,18 @@ def test_settings_hides_session_token_from_repr_and_dump(tmp_path: Path) -> None
     assert "super-secret" not in repr(settings)
     assert "session_token" not in settings.model_dump()
     assert settings.session_token == "super-secret"
+
+
+def test_settings_rejects_non_loopback_host(tmp_path: Path) -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            host="0.0.0.0",
+            data_root=tmp_path,
+            session_token="local-secret",
+        )
+
+
+@pytest.mark.parametrize("port", [-1, 65536])
+def test_settings_rejects_invalid_port(tmp_path: Path, port: int) -> None:
+    with pytest.raises(ValidationError):
+        Settings(data_root=tmp_path, session_token="local-secret", port=port)
