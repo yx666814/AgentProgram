@@ -3,7 +3,7 @@ import re
 
 import pytest
 
-from agent_platform.domain.shared.errors import DomainError
+from agent_platform.domain.shared.errors import DomainError, ErrorCategory
 from agent_platform.domain.shared.ids import new_id
 
 
@@ -55,7 +55,19 @@ def test_domain_error_exposes_stable_code() -> None:
     error = DomainError(code="workflow.invalid_state", message="invalid")
 
     assert error.code == "workflow.invalid_state"
+    assert error.category is ErrorCategory.CONFLICT
     assert str(error) == "invalid"
+
+
+def test_domain_error_categories_are_stable() -> None:
+    assert {category.value for category in ErrorCategory} == {
+        "invalid_input",
+        "permission",
+        "not_found",
+        "conflict",
+        "rate_limited",
+        "unavailable",
+    }
 
 
 def test_domain_error_initializes_exception_args() -> None:
@@ -65,17 +77,23 @@ def test_domain_error_initializes_exception_args() -> None:
         message="invalid",
         details=details,
         retryable=True,
+        category=ErrorCategory.UNAVAILABLE,
     )
 
     assert error.args == ("workflow.invalid_state", "invalid", details, True)
 
 
-def test_domain_error_round_trips_through_pickle() -> None:
+@pytest.mark.parametrize(
+    "category",
+    [ErrorCategory.CONFLICT, ErrorCategory.UNAVAILABLE],
+)
+def test_domain_error_round_trips_through_pickle(category: ErrorCategory) -> None:
     error = DomainError(
         code="workflow.invalid_state",
         message="invalid",
         details={"state": "x"},
         retryable=True,
+        category=category,
     )
 
     restored = pickle.loads(pickle.dumps(error))
@@ -84,4 +102,5 @@ def test_domain_error_round_trips_through_pickle() -> None:
     assert restored.message == "invalid"
     assert restored.details == {"state": "x"}
     assert restored.retryable is True
+    assert restored.category is category
     assert str(restored) == "invalid"

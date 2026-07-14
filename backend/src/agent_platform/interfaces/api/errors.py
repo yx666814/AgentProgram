@@ -7,7 +7,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
-from agent_platform.domain.shared.errors import DomainError
+from agent_platform.domain.shared.errors import DomainError, ErrorCategory
 
 SENSITIVE_DETAIL_KEYS = {
     "api_key",
@@ -17,6 +17,14 @@ SENSITIVE_DETAIL_KEYS = {
     "secret",
     "session_token",
     "token",
+}
+DOMAIN_ERROR_STATUS_CODES: Mapping[ErrorCategory, int] = {
+    ErrorCategory.INVALID_INPUT: HTTPStatus.BAD_REQUEST,
+    ErrorCategory.PERMISSION: HTTPStatus.FORBIDDEN,
+    ErrorCategory.NOT_FOUND: HTTPStatus.NOT_FOUND,
+    ErrorCategory.CONFLICT: HTTPStatus.CONFLICT,
+    ErrorCategory.RATE_LIMITED: HTTPStatus.TOO_MANY_REQUESTS,
+    ErrorCategory.UNAVAILABLE: HTTPStatus.SERVICE_UNAVAILABLE,
 }
 
 
@@ -99,7 +107,7 @@ async def _domain_error_handler(_: Request, exc: Exception) -> JSONResponse:
     if not isinstance(exc, DomainError):
         raise TypeError("Domain error handler received an unexpected exception")
     return error_response(
-        status_code=409,
+        status_code=DOMAIN_ERROR_STATUS_CODES[exc.category],
         code=exc.code,
         message=exc.message,
         details=_sanitize_details(exc.details),
