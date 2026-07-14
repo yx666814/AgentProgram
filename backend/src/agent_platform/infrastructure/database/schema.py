@@ -5,7 +5,8 @@ RELIABLE_OUTBOX_DATABASE_REVISION: Final[str] = "0002_reliable_outbox"
 PROJECT_REGISTRY_DATABASE_REVISION: Final[str] = "0003_project_registry"
 PROJECT_PREFLIGHT_DATABASE_REVISION: Final[str] = "0004_project_preflight"
 PROJECT_CHECKPOINT_DATABASE_REVISION: Final[str] = "0005_project_checkpoints"
-CURRENT_DATABASE_REVISION: Final[str] = PROJECT_CHECKPOINT_DATABASE_REVISION
+PROJECT_CONFLICT_DATABASE_REVISION: Final[str] = "0006_project_conflicts"
+CURRENT_DATABASE_REVISION: Final[str] = PROJECT_CONFLICT_DATABASE_REVISION
 REQUIRED_DATABASE_TABLES: Final[frozenset[str]] = frozenset(
     {
         "alembic_version",
@@ -20,5 +21,7 @@ REQUIRED_DATABASE_TABLES: Final[frozenset[str]] = frozenset(
         "project_preflight_runs",
         "project_checkpoints",
         "checkpoint_files",
+        "external_changes",
+        "file_conflicts",
     }
 )

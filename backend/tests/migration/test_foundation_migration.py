@@ -14,7 +14,7 @@ import agent_platform.infrastructure.database.schema as database_schema
 from agent_platform.infrastructure.database.schema import (
     CURRENT_DATABASE_REVISION,
     FOUNDATION_DATABASE_REVISION,
-    PROJECT_CHECKPOINT_DATABASE_REVISION,
+    PROJECT_CONFLICT_DATABASE_REVISION,
     REQUIRED_DATABASE_TABLES,
 )
 
@@ -69,8 +69,8 @@ def test_foundation_revision_does_not_change_when_current_revision_advances(
     assert _load_foundation_module().revision == FOUNDATION_DATABASE_REVISION
 
 
-def test_current_database_revision_advances_to_project_checkpoints() -> None:
-    assert CURRENT_DATABASE_REVISION == PROJECT_CHECKPOINT_DATABASE_REVISION
+def test_current_database_revision_advances_to_project_conflicts() -> None:
+    assert CURRENT_DATABASE_REVISION == PROJECT_CONFLICT_DATABASE_REVISION
 
 
 def test_required_database_tables_are_shared() -> None:
@@ -88,6 +88,8 @@ def test_required_database_tables_are_shared() -> None:
             "project_preflight_runs",
             "project_checkpoints",
             "checkpoint_files",
+            "external_changes",
+            "file_conflicts",
         }
     )
 
@@ -112,6 +114,8 @@ def test_foundation_migration_upgrades_and_downgrades_cleanly(tmp_path: Path) ->
         "project_preflight_runs",
         "project_checkpoints",
         "checkpoint_files",
+        "external_changes",
+        "file_conflicts",
     }
 
     _run_alembic("downgrade", "base", data_root=data_root)

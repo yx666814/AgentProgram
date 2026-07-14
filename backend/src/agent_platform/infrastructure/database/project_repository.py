@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from agent_platform.domain.projects import (
     CheckpointFile,
     CheckpointReason,
+    ConflictResolution,
+    ExternalChange,
+    ExternalChangeStatus,
+    ExternalChangeType,
+    FileConflict,
+    FileConflictStatus,
     PersistedProjectManifest,
     Project,
     ProjectCheckpoint,
@@ -21,6 +28,8 @@ from agent_platform.domain.projects import (
 from agent_platform.domain.shared.errors import DomainError, ErrorCategory
 from agent_platform.infrastructure.database.models import (
     CheckpointFileRow,
+    ExternalChangeRow,
+    FileConflictRow,
     ProjectCheckpointRow,
     ProjectManifestRow,
     ProjectPreflightRow,
@@ -43,6 +52,16 @@ class ProjectVersionConflictError(DomainError):
         super().__init__(
             code="project.version_conflict",
             message="Project version has changed",
+            details={"current_version": current_version},
+            category=ErrorCategory.CONFLICT,
+        )
+
+
+class FileConflictVersionError(DomainError):
+    def __init__(self, current_version: int) -> None:
+        super().__init__(
+            code="file_conflict.version_conflict",
+            message="File conflict version has changed",
             details={"current_version": current_version},
             category=ErrorCategory.CONFLICT,
         )
@@ -282,6 +301,118 @@ class SqlAlchemyProjectRepository:
         statement = select(CheckpointFileRow.content_hash).distinct()
         return frozenset((await self._session.scalars(statement)).all())
 
+    async def record_external_changes(
+        self,
+        changes: tuple[ExternalChange, ...],
+    ) -> None:
+        self._session.add_all(
+            ExternalChangeRow(
+                id=change.id,
+                project_id=change.project_id,
+                schema_version=change.schema_version,
+                relative_path=change.relative_path,
+                change_type=change.change_type.value,
+                baseline_content_hash=change.baseline_content_hash,
+                current_content_hash=change.current_content_hash,
+                status=change.status.value,
+                detected_at=change.detected_at,
+            )
+            for change in changes
+        )
+        await self._session.flush()
+
+    async def list_open_external_changes(
+        self,
+        project_id: str,
+    ) -> tuple[ExternalChange, ...]:
+        statement = (
+            select(ExternalChangeRow)
+            .where(
+                ExternalChangeRow.project_id == project_id,
+                ExternalChangeRow.status == ExternalChangeStatus.OPEN.value,
+            )
+            .order_by(ExternalChangeRow.detected_at, ExternalChangeRow.relative_path)
+        )
+        rows = (await self._session.scalars(statement)).all()
+        return tuple(_external_change_from_row(row) for row in rows)
+
+    async def acknowledge_external_change(self, change_id: str) -> ExternalChange:
+        row = await self._session.get(ExternalChangeRow, change_id)
+        if row is None:
+            raise DomainError(
+                code="external_change.not_found",
+                message="External change was not found",
+                category=ErrorCategory.NOT_FOUND,
+            )
+        row.status = ExternalChangeStatus.ACKNOWLEDGED.value
+        await self._session.flush()
+        return _external_change_from_row(row)
+
+    async def record_file_conflicts(self, conflicts: tuple[FileConflict, ...]) -> None:
+        self._session.add_all(
+            FileConflictRow(
+                id=conflict.id,
+                project_id=conflict.project_id,
+                schema_version=conflict.schema_version,
+                relative_path=conflict.relative_path,
+                baseline_content_hash=conflict.baseline_content_hash,
+                user_content_hash=conflict.user_content_hash,
+                agent_content_hash=conflict.agent_content_hash,
+                status=conflict.status.value,
+                resolution=conflict.resolution.value if conflict.resolution else None,
+                version=conflict.version,
+                created_at=conflict.created_at,
+                resolved_at=conflict.resolved_at,
+            )
+            for conflict in conflicts
+        )
+        await self._session.flush()
+
+    async def list_open_file_conflicts(
+        self,
+        project_id: str,
+    ) -> tuple[FileConflict, ...]:
+        statement = (
+            select(FileConflictRow)
+            .where(
+                FileConflictRow.project_id == project_id,
+                FileConflictRow.status == FileConflictStatus.OPEN.value,
+            )
+            .order_by(FileConflictRow.created_at, FileConflictRow.relative_path)
+        )
+        rows = (await self._session.scalars(statement)).all()
+        return tuple(_file_conflict_from_row(row) for row in rows)
+
+    async def resolve_file_conflict(
+        self,
+        conflict_id: str,
+        resolution: ConflictResolution,
+        *,
+        expected_version: int,
+        resolved_at: datetime,
+    ) -> FileConflict:
+        row = await self._session.get(FileConflictRow, conflict_id)
+        if row is None:
+            raise DomainError(
+                code="file_conflict.not_found",
+                message="File conflict was not found",
+                category=ErrorCategory.NOT_FOUND,
+            )
+        if row.version != expected_version:
+            raise FileConflictVersionError(row.version)
+        if row.status != FileConflictStatus.OPEN.value:
+            raise DomainError(
+                code="file_conflict.already_resolved",
+                message="File conflict is already resolved",
+                category=ErrorCategory.CONFLICT,
+            )
+        row.status = FileConflictStatus.RESOLVED.value
+        row.resolution = resolution.value
+        row.version += 1
+        row.resolved_at = resolved_at
+        await self._session.flush()
+        return _file_conflict_from_row(row)
+
     async def _checkpoint_from_row(self, row: ProjectCheckpointRow) -> ProjectCheckpoint:
         if row.schema_version != 1:
             raise ValueError("persisted checkpoint schema version is invalid")
@@ -352,4 +483,39 @@ def _project_from_row(project: ProjectRow) -> Project:
         version=project.version,
         created_at=project.created_at,
         updated_at=project.updated_at,
+    )
+
+
+def _external_change_from_row(row: ExternalChangeRow) -> ExternalChange:
+    if row.schema_version != 1:
+        raise ValueError("persisted external change schema version is invalid")
+    return ExternalChange(
+        schema_version=1,
+        id=row.id,
+        project_id=row.project_id,
+        relative_path=row.relative_path,
+        change_type=ExternalChangeType(row.change_type),
+        baseline_content_hash=row.baseline_content_hash,
+        current_content_hash=row.current_content_hash,
+        status=ExternalChangeStatus(row.status),
+        detected_at=row.detected_at,
+    )
+
+
+def _file_conflict_from_row(row: FileConflictRow) -> FileConflict:
+    if row.schema_version != 1:
+        raise ValueError("persisted file conflict schema version is invalid")
+    return FileConflict(
+        schema_version=1,
+        id=row.id,
+        project_id=row.project_id,
+        relative_path=row.relative_path,
+        baseline_content_hash=row.baseline_content_hash,
+        user_content_hash=row.user_content_hash,
+        agent_content_hash=row.agent_content_hash,
+        status=FileConflictStatus(row.status),
+        resolution=ConflictResolution(row.resolution) if row.resolution else None,
+        version=row.version,
+        created_at=row.created_at,
+        resolved_at=row.resolved_at,
     )

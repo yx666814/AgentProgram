@@ -1,6 +1,10 @@
+from datetime import datetime
 from typing import Protocol
 
 from agent_platform.domain.projects import (
+    ConflictResolution,
+    ExternalChange,
+    FileConflict,
     PersistedProjectManifest,
     Project,
     ProjectCheckpoint,
@@ -51,3 +55,31 @@ class ProjectRepository(Protocol):
     ) -> tuple[ProjectCheckpoint, ...]: ...
 
     async def list_referenced_checkpoint_hashes(self) -> frozenset[str]: ...
+
+    async def record_external_changes(
+        self,
+        changes: tuple[ExternalChange, ...],
+    ) -> None: ...
+
+    async def list_open_external_changes(
+        self,
+        project_id: str,
+    ) -> tuple[ExternalChange, ...]: ...
+
+    async def acknowledge_external_change(self, change_id: str) -> ExternalChange: ...
+
+    async def record_file_conflicts(self, conflicts: tuple[FileConflict, ...]) -> None: ...
+
+    async def list_open_file_conflicts(
+        self,
+        project_id: str,
+    ) -> tuple[FileConflict, ...]: ...
+
+    async def resolve_file_conflict(
+        self,
+        conflict_id: str,
+        resolution: ConflictResolution,
+        *,
+        expected_version: int,
+        resolved_at: datetime,
+    ) -> FileConflict: ...

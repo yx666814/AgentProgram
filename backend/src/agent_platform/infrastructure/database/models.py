@@ -256,3 +256,47 @@ class CheckpointFileRow(Base):
     relative_path: Mapped[str] = mapped_column(Text, primary_key=True)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class ExternalChangeRow(Base):
+    __tablename__ = "external_changes"
+    __table_args__ = (Index("ix_external_changes_open", "project_id", "status", "detected_at"),)
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    relative_path: Mapped[str] = mapped_column(Text, nullable=False)
+    change_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    baseline_content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    current_content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    detected_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class FileConflictRow(Base):
+    __tablename__ = "file_conflicts"
+    __table_args__ = (
+        CheckConstraint("version > 0", name="ck_file_conflicts_version_positive"),
+        Index("ix_file_conflicts_open", "project_id", "status", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    relative_path: Mapped[str] = mapped_column(Text, nullable=False)
+    baseline_content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    user_content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    agent_content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    resolution: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)

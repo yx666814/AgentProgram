@@ -49,6 +49,28 @@ class CheckpointReason(StrEnum):
     PRE_RESTORE = "pre_restore"
 
 
+class ExternalChangeType(StrEnum):
+    ADDED = "added"
+    MODIFIED = "modified"
+    DELETED = "deleted"
+
+
+class ExternalChangeStatus(StrEnum):
+    OPEN = "open"
+    ACKNOWLEDGED = "acknowledged"
+
+
+class FileConflictStatus(StrEnum):
+    OPEN = "open"
+    RESOLVED = "resolved"
+
+
+class ConflictResolution(StrEnum):
+    KEEP_USER = "keep_user"
+    KEEP_AGENT = "keep_agent"
+    MANUAL_MERGE = "manual_merge"
+
+
 class Project(VersionedContractModel):
     id: ContractId
     name: ProjectName
@@ -250,6 +272,98 @@ class CheckpointRestoreResult(VersionedContractModel):
     restored_checkpoint_id: ContractId
     protection_checkpoint_id: ContractId
     restored_file_count: int = Field(ge=0)
+
+
+class ExternalChange(VersionedContractModel):
+    id: ContractId
+    project_id: ContractId
+    relative_path: str
+    change_type: ExternalChangeType
+    baseline_content_hash: ContentHash | None = None
+    current_content_hash: ContentHash | None = None
+    status: ExternalChangeStatus = ExternalChangeStatus.OPEN
+    detected_at: AwareDatetime
+
+    @field_validator("relative_path")
+    @classmethod
+    def require_canonical_path(cls, value: object) -> str:
+        return _validate_manifest_path(value)
+
+    @field_validator("detected_at")
+    @classmethod
+    def require_utc_timestamp(cls, value: datetime) -> datetime:
+        return require_utc(value, field_name="external change detected_at")
+
+    @model_validator(mode="after")
+    def require_consistent_hashes(self) -> "ExternalChange":
+        baseline = self.baseline_content_hash
+        current = self.current_content_hash
+        valid = {
+            ExternalChangeType.ADDED: baseline is None and current is not None,
+            ExternalChangeType.DELETED: baseline is not None and current is None,
+            ExternalChangeType.MODIFIED: (
+                baseline is not None and current is not None and baseline != current
+            ),
+        }
+        if not valid[self.change_type]:
+            raise ValueError("external change hashes do not match change type")
+        return self
+
+
+class FileConflict(VersionedContractModel):
+    id: ContractId
+    project_id: ContractId
+    relative_path: str
+    baseline_content_hash: ContentHash | None = None
+    user_content_hash: ContentHash | None = None
+    agent_content_hash: ContentHash | None = None
+    status: FileConflictStatus = FileConflictStatus.OPEN
+    resolution: ConflictResolution | None = None
+    version: PositiveVersion
+    created_at: AwareDatetime
+    resolved_at: AwareDatetime | None = None
+
+    @field_validator("relative_path")
+    @classmethod
+    def require_canonical_path(cls, value: object) -> str:
+        return _validate_manifest_path(value)
+
+    @field_validator("created_at", "resolved_at")
+    @classmethod
+    def require_utc_timestamps(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        return require_utc(value, field_name="file conflict timestamp")
+
+    @model_validator(mode="after")
+    def require_consistent_conflict(self) -> "FileConflict":
+        if (
+            self.user_content_hash == self.baseline_content_hash
+            or self.agent_content_hash == self.baseline_content_hash
+            or self.user_content_hash == self.agent_content_hash
+        ):
+            raise ValueError("file conflict requires divergent user and agent changes")
+        if self.status is FileConflictStatus.OPEN:
+            if self.resolution is not None or self.resolved_at is not None:
+                raise ValueError("open conflict cannot have a resolution")
+        elif self.resolution is None or self.resolved_at is None:
+            raise ValueError("resolved conflict requires resolution metadata")
+        return self
+
+
+class CheckpointRestorePlan(VersionedContractModel):
+    current_checkpoint_id: ContractId
+    target_checkpoint_id: ContractId
+    overwrite_paths: tuple[str, ...]
+    preserved_extra_paths: tuple[str, ...]
+
+    @field_validator("overwrite_paths", "preserved_extra_paths")
+    @classmethod
+    def require_sorted_paths(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        validated = tuple(_validate_manifest_path(path) for path in value)
+        if validated != tuple(sorted(set(validated))):
+            raise ValueError("restore plan paths must be unique and sorted")
+        return validated
 
 
 def canonical_manifest_document(manifest: ProjectManifest) -> dict[str, Any]:
