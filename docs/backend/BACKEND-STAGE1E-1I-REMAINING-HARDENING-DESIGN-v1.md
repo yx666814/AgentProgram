@@ -58,6 +58,7 @@ Startup order:
 ```text
 ensure application directories
 -> acquire the application instance lock
+-> register the current session token as a known secret
 -> configure durable logging
 -> open and probe SQLite
 -> run quick integrity validation
@@ -77,10 +78,11 @@ cancel and await Worker Watchdog
 -> run final bounded WAL checkpoint
 -> dispose SQLite
 -> flush and close durable logging
+-> unregister the current session token
 -> release the application instance lock
 ```
 
-Stopping Workers before the final Outbox drain ensures shutdown events can still be claimed. If the bounded drain expires, leased rows remain recoverable after lease expiry on the next startup. Every cleanup step runs even if an earlier step fails. The first error remains primary. Later cleanup failures add only the existing sanitized cleanup note and never expose paths, payloads, stderr content, credentials, or exception messages.
+Stopping Workers before the final Outbox drain ensures shutdown events can still be claimed. If the graceful drain expires, the Dispatcher is cancelled and receives a second short bounded cleanup deadline; normally leased rows then remain recoverable after lease expiry on the next startup. If a non-cooperative Dispatcher exceeds that second deadline, or the logging writer remains alive after its own close deadline, the Backend fails stop instead of disposing/releasing resources underneath live work. Every ordinary cleanup step runs even if an earlier step fails; these ownership-dependency breaches are the only exceptions. The first error remains primary. Later cleanup failures add only the existing sanitized cleanup note and never expose paths, payloads, stderr content, credentials, or exception messages.
 
 ## 5. Stage 1E: Runtime Diagnostics
 
@@ -91,11 +93,13 @@ The existing structlog and stdlib pipeline remains the single logging path. It g
 - stderr JSON for the local launcher and development diagnostics;
 - rotating UTF-8 JSON Lines at `log_root/backend.jsonl`.
 
-Settings define and validate bounded file size, retained file count, and retention age. Rotation uses application-owned files with fixed names under `log_root`; cleanup never follows symbolic links and never deletes files outside the resolved log directory.
+Settings define and validate bounded file size, final UTF-8 record size, queue capacity, retained file count, retention age, and logging-drain deadline. Each caller reduces a record to one fully redacted immutable bounded JSON line and enqueues it without sink I/O; one writer thread exclusively owns stderr/file writes and rotation, so slow storage cannot block the asyncio IPC loop. No live `LogRecord`, exception, argument object, or raw secret remains in the queue. Rotation uses application-owned files with fixed names under `log_root`; active files, rollover paths, and cleanup reject links/reparse points and never mutate files outside the handle-verified log directory.
 
 The shared redaction implementation owns sensitive keys, a runtime registry of known secret values, and safe scalar rendering so API errors, Backend logs, and Worker evidence do not maintain drifting secret lists. The current session token is registered at startup. Registered values are removed even when embedded in ordinary strings, URLs, Bearer headers, or exception text.
 
 External exception messages and request values are never logged directly; only stable internal categories and exception types may be emitted. Each structured record contains a UTC timestamp, level, logger, event name, and available safe context identifiers such as correlation, project, workflow, room, task, and worker IDs. Request bodies, model payloads, full project paths, session tokens, and raw credentials are never logged.
+
+Uvicorn's independent handlers are disabled before the server starts. Pre-lifespan Uvicorn records are safely suppressed; after lifespan configures diagnostics, `uvicorn.error` and `uvicorn.access` propagate through the same bounded JSON/redaction queue, and post-lifespan records return to suppression rather than plaintext fallback.
 
 ### 5.2 Worker stderr evidence
 
@@ -120,9 +124,9 @@ Rules:
 
 - inbound sequence numbers are strict positive consecutive integers;
 - duplicate, skipped, reversed, boolean, float, or string sequence values fail closed;
-- recently seen message IDs are held in a fixed-capacity deque-plus-set window;
+- wire message IDs have a fixed maximum length and recently seen IDs are retained only as fixed-size SHA-256 digests in a fixed-capacity deque-plus-set window;
 - the default capacity is 4096 and is validated within a bounded configured range;
-- eviction removes IDs from both the deque and set;
+- eviction removes digests from both the deque and set; raw message IDs are never retained by replay state;
 - memory use remains bounded for a Worker that runs indefinitely;
 - the Worker process lifetime remains the IPC session boundary;
 - no field is added to IPC v1 and no automatic Worker restart is introduced.
@@ -183,7 +187,7 @@ The migration upgrades EventLog persistence so every row can reconstruct the fro
 - aggregate type/ID;
 - strict JSON payload.
 
-Legacy foundation rows are backfilled deterministically with schema version 1, system/backend attribution, preserved timestamps, and generated stable legacy correlation identifiers before non-null constraints are enforced.
+Before mutation, every legacy foundation row is preflight-validated against the exact strict envelope, identifier, aggregate, payload, timestamp, and Outbox relationship rules because SQLite does not enforce declared `String(N)` lengths. Valid rows are backfilled deterministically with schema version 1, system/backend attribution, preserved timestamps, and generated stable legacy correlation identifiers before non-null constraints are enforced. Any invalid legacy row aborts the upgrade with a sanitized category/count error and leaves the `0001` database unchanged; the migration never silently truncates or rewrites user data.
 
 Repository writes accept validated event contracts rather than loose unvalidated payload dictionaries.
 
@@ -201,7 +205,7 @@ dead_letter
 
 Delivery rows include lease owner/expiry, next-attempt time, bounded attempt count, delivered/dead-letter timestamps, and a sanitized last-error category. The aggregate row records whether every target is delivered or any target is unresolved/dead-lettered. Raw exception messages and payloads are not stored as error diagnostics.
 
-Claiming uses a short transaction and conditional update. Publishing happens outside the claim transaction. Confirmation uses the lease token so an expired owner cannot acknowledge another owner's claim.
+Claiming uses one short atomic SQLite `UPDATE ... WHERE id=(SELECT ... LIMIT 1) RETURNING` transaction, with only classified busy/snapshot contention receiving a small bounded retry. A deferred `SELECT`-then-`UPDATE` claim is forbidden. Publishing happens outside the claim transaction. Confirmation uses the lease token so an expired owner cannot acknowledge another owner's claim.
 
 Retry uses deterministic exponential backoff with a configured maximum. Expired leases return to eligibility. Exceeding the configured attempt limit moves the item to dead letter while retaining EventLog history.
 
@@ -215,7 +219,7 @@ Consumers must make their side effect idempotent by event ID. A local database c
 
 A delivered target row is the coordinator receipt. A retry skips a target already marked delivered. The aggregate Outbox record becomes delivered only when every immutable target created at enqueue time is delivered or explicitly resolved by a future versioned administrative operation.
 
-Stage 1 registers one immutable target, `local_audit_v1`. It writes a payload-free SQLite audit projection keyed by event ID and marks the target delivered in the same transaction, making retries logically idempotent. The projection contains only event identity, type, correlation context, occurred-at time, and delivered-at time.
+Stage 1 requires the immutable target `local_audit_v1`; no Unit of Work configuration may omit it. It writes a payload-free SQLite audit projection keyed by event ID and marks the target delivered in the same transaction, making retries logically idempotent. The projection contains only event identity, type, correlation context, occurred-at time, and delivered-at time.
 
 Durable JSONL logging may observe successful audit delivery, but it is non-authoritative and is not an Outbox target; duplicate log observations after a crash are harmless because readers can deduplicate by event ID. Stage 3 may add WebSocket delivery for newly enqueued events separately and uses EventLog replay for historical events.
 
