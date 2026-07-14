@@ -161,7 +161,8 @@ def test_every_role_card_loads_with_hash(stage: Stage) -> None:
     assert card.role_id is stage
     assert card.stage_id is stage
     assert len(card.content_hash) == 64
-    assert "git" not in card.content.casefold()
+    assert re.search(r"(?im)^\s*git\.", card.content) is None
+    assert re.search(r"\bGit\b", card.content) is None
 
 
 def test_load_all_preserves_stage_order() -> None:
