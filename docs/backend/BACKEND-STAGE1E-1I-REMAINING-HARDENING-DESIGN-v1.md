@@ -1,6 +1,6 @@
 # Backend Stage 1E–1I Remaining Hardening Design
 
-> Status: approved direction; implementation process explicitly uses implementation-first testing rather than TDD.
+> Status: implemented and verified; Stage 2 may begin.
 
 ## 1. Purpose
 

@@ -241,7 +241,7 @@ abandoned
 
 保留当前 `backend/` 实现。不得回退 Worker 进程清理、IPC v1、认证、事务和迁移约束。
 
-### 阶段 1：后端共享协议与基础加固
+### 阶段 1：后端共享协议与基础加固（已完成）
 
 交付：共享类型、StageContract 内核、RoleCard Schema/Loader、五张版本化角色资源、错误分类、事件元数据、幂等协议、Alembic 版本、Watchdog、文件日志、Outbox Dispatcher、SQLite 备份基础。
 
