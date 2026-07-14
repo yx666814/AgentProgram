@@ -2,7 +2,8 @@ from typing import Final
 
 FOUNDATION_DATABASE_REVISION: Final[str] = "0001_foundation"
 RELIABLE_OUTBOX_DATABASE_REVISION: Final[str] = "0002_reliable_outbox"
-CURRENT_DATABASE_REVISION: Final[str] = RELIABLE_OUTBOX_DATABASE_REVISION
+PROJECT_REGISTRY_DATABASE_REVISION: Final[str] = "0003_project_registry"
+CURRENT_DATABASE_REVISION: Final[str] = PROJECT_REGISTRY_DATABASE_REVISION
 REQUIRED_DATABASE_TABLES: Final[frozenset[str]] = frozenset(
     {
         "alembic_version",
@@ -10,5 +11,9 @@ REQUIRED_DATABASE_TABLES: Final[frozenset[str]] = frozenset(
         "outbox_events",
         "outbox_deliveries",
         "local_audit_events",
+        "projects",
+        "workspaces",
+        "project_manifests",
+        "project_instructions",
     }
 )

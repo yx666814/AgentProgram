@@ -2,6 +2,7 @@ from types import TracebackType
 from typing import Protocol, Self
 
 from agent_platform.domain.events.models import EventEnvelope
+from agent_platform.ports.projects import ProjectRepository
 
 
 class EventRepository(Protocol):
@@ -19,6 +20,9 @@ class EventRepository(Protocol):
 class UnitOfWork(Protocol):
     @property
     def events(self) -> EventRepository: ...
+
+    @property
+    def projects(self) -> ProjectRepository: ...
 
     async def __aenter__(self) -> Self: ...
 

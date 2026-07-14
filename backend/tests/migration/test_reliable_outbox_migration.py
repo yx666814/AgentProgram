@@ -47,7 +47,7 @@ def test_legacy_event_without_outbox_is_upgraded_with_required_target(tmp_path: 
                 occurred_at,
             ),
         )
-    _alembic(data_root, "upgrade", "head")
+    _alembic(data_root, "upgrade", "0002_reliable_outbox")
 
     with sqlite3.connect(database_path) as connection:
         event = connection.execute(

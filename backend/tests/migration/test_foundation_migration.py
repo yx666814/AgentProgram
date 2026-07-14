@@ -14,7 +14,7 @@ import agent_platform.infrastructure.database.schema as database_schema
 from agent_platform.infrastructure.database.schema import (
     CURRENT_DATABASE_REVISION,
     FOUNDATION_DATABASE_REVISION,
-    RELIABLE_OUTBOX_DATABASE_REVISION,
+    PROJECT_REGISTRY_DATABASE_REVISION,
     REQUIRED_DATABASE_TABLES,
 )
 
@@ -69,8 +69,8 @@ def test_foundation_revision_does_not_change_when_current_revision_advances(
     assert _load_foundation_module().revision == FOUNDATION_DATABASE_REVISION
 
 
-def test_current_database_revision_advances_to_reliable_outbox() -> None:
-    assert CURRENT_DATABASE_REVISION == RELIABLE_OUTBOX_DATABASE_REVISION
+def test_current_database_revision_advances_to_project_registry() -> None:
+    assert CURRENT_DATABASE_REVISION == PROJECT_REGISTRY_DATABASE_REVISION
 
 
 def test_required_database_tables_are_shared() -> None:
@@ -81,6 +81,10 @@ def test_required_database_tables_are_shared() -> None:
             "outbox_events",
             "outbox_deliveries",
             "local_audit_events",
+            "projects",
+            "workspaces",
+            "project_manifests",
+            "project_instructions",
         }
     )
 
@@ -98,6 +102,10 @@ def test_foundation_migration_upgrades_and_downgrades_cleanly(tmp_path: Path) ->
         "outbox_events",
         "outbox_deliveries",
         "local_audit_events",
+        "projects",
+        "workspaces",
+        "project_manifests",
+        "project_instructions",
     }
 
     _run_alembic("downgrade", "base", data_root=data_root)

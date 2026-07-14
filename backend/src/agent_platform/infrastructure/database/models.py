@@ -1,6 +1,15 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, CheckConstraint, ForeignKey, Index, Integer, String, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from agent_platform.infrastructure.database.base import Base
@@ -109,3 +118,76 @@ class LocalAuditEventRow(Base):
     task_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     occurred_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     delivered_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class ProjectRow(Base):
+    __tablename__ = "projects"
+    __table_args__ = (
+        CheckConstraint("version > 0", name="ck_projects_version_positive"),
+        Index("ix_projects_updated_at", "updated_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    goal: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class WorkspaceRow(Base):
+    __tablename__ = "workspaces"
+    __table_args__ = (
+        UniqueConstraint("project_id", name="uq_workspaces_project_id"),
+        UniqueConstraint("canonical_root_path", name="uq_workspaces_canonical_root_path"),
+        Index("ix_workspaces_mode", "mode"),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    mode: Mapped[str] = mapped_column(String(20), nullable=False)
+    root_path: Mapped[str] = mapped_column(Text, nullable=False)
+    canonical_root_path: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class ProjectManifestRow(Base):
+    __tablename__ = "project_manifests"
+
+    project_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    manifest_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    document: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class ProjectInstructionRow(Base):
+    __tablename__ = "project_instructions"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            "relative_path",
+            name="uq_project_instructions_project_path",
+        ),
+        Index("ix_project_instructions_project_id", "project_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    relative_path: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)

@@ -3,6 +3,9 @@ from types import TracebackType
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agent_platform.infrastructure.async_cleanup import await_cancellation_resistant
+from agent_platform.infrastructure.database.project_repository import (
+    SqlAlchemyProjectRepository,
+)
 from agent_platform.infrastructure.database.repositories import EventLogRepository
 from agent_platform.ports.event_publishing import LOCAL_AUDIT_CONSUMER
 
@@ -21,6 +24,7 @@ class SqlAlchemyUnitOfWork:
         self._committed = False
         self.session: AsyncSession
         self.events: EventLogRepository
+        self.projects: SqlAlchemyProjectRepository
 
     async def __aenter__(self) -> "SqlAlchemyUnitOfWork":
         if self._entered:
@@ -29,6 +33,7 @@ class SqlAlchemyUnitOfWork:
         self._entered = True
         self.session = self._session_factory(close_resets_only=False)
         self.events = EventLogRepository(self.session, self._delivery_targets)
+        self.projects = SqlAlchemyProjectRepository(self.session)
         self._active = True
         return self
 
