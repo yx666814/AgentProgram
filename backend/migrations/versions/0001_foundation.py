@@ -5,9 +5,9 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-from agent_platform.infrastructure.database.schema import CURRENT_DATABASE_REVISION
+from agent_platform.infrastructure.database.schema import FOUNDATION_DATABASE_REVISION
 
-revision: str = CURRENT_DATABASE_REVISION
+revision: str = FOUNDATION_DATABASE_REVISION
 down_revision: str | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None

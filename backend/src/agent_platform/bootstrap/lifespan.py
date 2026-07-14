@@ -60,12 +60,17 @@ def _start_worker_watchdog(
 
 
 async def _cancel_worker_watchdog(watchdog_task: asyncio.Task[None]) -> None:
-    watchdog_task.cancel()
+    cancellation_requested_by_shutdown = (
+        not watchdog_task.done() and watchdog_task.cancelling() == 0
+    )
+    if cancellation_requested_by_shutdown:
+        watchdog_task.cancel()
     try:
         await watchdog_task
     except asyncio.CancelledError:
-        if not watchdog_task.cancelled():
-            raise
+        if cancellation_requested_by_shutdown and watchdog_task.cancelled():
+            return
+        raise
 
 
 async def _shutdown_resources(

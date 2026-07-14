@@ -4,7 +4,7 @@
 
 **Goal:** Remove bootstrap version/schema drift, launch the API from validated host/port settings, and run Worker heartbeat supervision throughout the application lifespan.
 
-**Architecture:** Package metadata is the sole backend-version source. A database schema module owns the current Alembic revision shared by migrations and readiness. A small production launcher constructs Settings and passes its host/port to Uvicorn. Lifespan owns a cancellable watchdog task that repeatedly invokes `WorkerSupervisor.watch_once()` and is shut down before workers and the database.
+**Architecture:** Package metadata is the sole backend-version source. A database schema module owns immutable historical Alembic revisions plus the current readiness revision. A small production launcher constructs Settings and passes its host/port to Uvicorn. Lifespan owns a cancellable watchdog task that repeatedly invokes `WorkerSupervisor.watch_once()` and is shut down before workers and the database.
 
 **Tech Stack:** Python 3.12, importlib.metadata, FastAPI, Uvicorn, Alembic, asyncio, Pydantic Settings, pytest, Ruff, mypy.
 
@@ -19,7 +19,7 @@ backend/src/agent_platform/
 |- main.py                                 # validated production launcher
 |- bootstrap/{app_factory.py,lifespan.py} # version use and Watchdog ownership
 |- config/settings.py                      # loopback host/port/watchdog validation
-`- infrastructure/database/schema.py       # current revision and required tables
+`- infrastructure/database/schema.py       # historical/current revisions and required tables
 
 backend/migrations/versions/0001_foundation.py
 backend/tests/
@@ -36,7 +36,7 @@ backend/{pyproject.toml,README.md}
 ## Explicit Boundaries
 
 - No dynamic Electron control channel, port publication file, session-token rotation, or desktop process ownership yet.
-- No migration is added; the existing foundation revision only receives a shared revision constant.
+- No migration is added; the existing foundation revision only receives an immutable named revision constant.
 - No Worker stderr persistence, Outbox dispatch, SQLite lock/backup, or retention policy.
 - Watchdog only enforces existing heartbeat timeout behavior through `watch_once()`; it does not restart workers or invent recovery state.
 - The V1 launcher remains loopback-only and rejects public bind addresses.
@@ -110,7 +110,7 @@ git add backend/src backend/tests/unit/test_version.py backend/tests/contract/te
 git commit -m "fix: unify backend version source"
 ```
 
-### Task 2: Share the current database revision
+### Task 2: Separate immutable migration revisions from the current database revision
 
 **Files:**
 - Create: `backend/src/agent_platform/infrastructure/database/schema.py`
@@ -128,6 +128,7 @@ from types import ModuleType
 
 from agent_platform.infrastructure.database.schema import (
     CURRENT_DATABASE_REVISION,
+    FOUNDATION_DATABASE_REVISION,
     REQUIRED_DATABASE_TABLES,
 )
 
@@ -142,8 +143,12 @@ def _load_foundation_module() -> ModuleType:
     return module
 
 
-def test_foundation_migration_uses_current_revision_constant() -> None:
-    assert _load_foundation_module().revision == CURRENT_DATABASE_REVISION
+def test_foundation_migration_uses_immutable_foundation_revision() -> None:
+    assert _load_foundation_module().revision == FOUNDATION_DATABASE_REVISION
+
+
+def test_current_database_revision_starts_at_foundation() -> None:
+    assert CURRENT_DATABASE_REVISION == FOUNDATION_DATABASE_REVISION
 
 
 def test_required_foundation_tables_are_shared() -> None:
@@ -152,18 +157,19 @@ def test_required_foundation_tables_are_shared() -> None:
     )
 ```
 
-Add the helper above to `test_foundation_migration.py`; the numeric migration filename must not be imported with ordinary Python module syntax. Add an API contract test that monkeypatches the health module's imported revision constant to a sentinel and proves readiness uses it. RED must fail because `schema.py` is absent.
+Add the helper above to `test_foundation_migration.py`; the numeric migration filename must not be imported with ordinary Python module syntax. Add a test that advances `schema.CURRENT_DATABASE_REVISION` to a sentinel and proves the historical foundation migration remains `FOUNDATION_DATABASE_REVISION`. Add an API contract test that monkeypatches the health module's imported current revision constant to a sentinel and proves readiness uses it. RED must fail because `schema.py` is absent.
 
-- [ ] **Step 2: Implement the shared schema constants**
+- [ ] **Step 2: Implement immutable historical and current schema constants**
 
 ```python
-CURRENT_DATABASE_REVISION: Final[str] = "0001_foundation"
+FOUNDATION_DATABASE_REVISION: Final[str] = "0001_foundation"
+CURRENT_DATABASE_REVISION: Final[str] = FOUNDATION_DATABASE_REVISION
 REQUIRED_DATABASE_TABLES: Final[frozenset[str]] = frozenset(
     {"alembic_version", "event_log", "outbox_events"}
 )
 ```
 
-Set the migration module's `revision` from `CURRENT_DATABASE_REVISION`. Health imports both constants and removes its local `EXPECTED_DATABASE_REVISION` and mutable table set.
+Set the foundation migration module's `revision` from `FOUNDATION_DATABASE_REVISION`; historical migration identifiers must never follow future changes to `CURRENT_DATABASE_REVISION`. Health imports `CURRENT_DATABASE_REVISION` and `REQUIRED_DATABASE_TABLES`, then removes its local `EXPECTED_DATABASE_REVISION` and mutable table set.
 
 - [ ] **Step 3: Verify GREEN and commit**
 
@@ -325,6 +331,7 @@ Use a fake supervisor with `watch_once()` and `stop_all()` events. Cover:
 - `app.state.worker_watchdog_task` exists only inside lifespan.
 - Shutdown cancels/awaits watchdog before `stop_all()` and database disposal.
 - A watchdog failure is retrieved during shutdown, remains the primary cleanup error, still calls `stop_all()` and disposes the database, and does not leak a secret exception message into public state.
+- A Watchdog task cancelled before shutdown remains the primary cleanup error instead of being mistaken for the shutdown's own cancellation.
 - Startup failure after supervisor creation still stops the supervisor and disposes the database.
 
 RED must show no watchdog task is created.
@@ -358,7 +365,7 @@ cancel and await watchdog
 -> dispose database
 ```
 
-Every cleanup step runs even if an earlier one fails. Preserve the first error and attach only the existing sanitized secondary-cleanup note for additional failures. `_clear_resource_state()` removes watchdog, supervisor, and database state. Startup cleanup handles partial construction using the same order.
+Every cleanup step runs even if an earlier one fails. Shutdown suppresses only the cancellation it initiates itself; a task that was already done or already cancelling must report its result as the primary cleanup outcome. Preserve the first error and attach only the existing sanitized secondary-cleanup note for additional failures. `_clear_resource_state()` removes watchdog, supervisor, and database state. Startup cleanup handles partial construction using the same order.
 
 - [ ] **Step 4: Verify GREEN and commit**
 

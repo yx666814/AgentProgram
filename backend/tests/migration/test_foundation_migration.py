@@ -8,8 +8,12 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
+import agent_platform.infrastructure.database.schema as database_schema
 from agent_platform.infrastructure.database.schema import (
     CURRENT_DATABASE_REVISION,
+    FOUNDATION_DATABASE_REVISION,
     REQUIRED_DATABASE_TABLES,
 )
 
@@ -48,8 +52,24 @@ def _run_alembic(*arguments: str, data_root: Path) -> None:
     )
 
 
-def test_foundation_migration_uses_current_revision_constant() -> None:
-    assert _load_foundation_module().revision == CURRENT_DATABASE_REVISION
+def test_foundation_migration_uses_immutable_foundation_revision() -> None:
+    assert _load_foundation_module().revision == FOUNDATION_DATABASE_REVISION
+
+
+def test_foundation_revision_does_not_change_when_current_revision_advances(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        database_schema,
+        "CURRENT_DATABASE_REVISION",
+        "0002_next_revision",
+    )
+
+    assert _load_foundation_module().revision == FOUNDATION_DATABASE_REVISION
+
+
+def test_current_database_revision_starts_at_foundation() -> None:
+    assert CURRENT_DATABASE_REVISION == FOUNDATION_DATABASE_REVISION
 
 
 def test_required_foundation_tables_are_shared() -> None:

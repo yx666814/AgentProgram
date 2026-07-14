@@ -354,6 +354,43 @@ async def test_watchdog_failure_remains_primary_and_all_cleanup_still_runs(
 
 
 @pytest.mark.asyncio
+async def test_pre_cancelled_watchdog_remains_primary_during_shutdown(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stop_secret = "stop-secret"
+    events: list[str] = []
+
+    class FailingSupervisor:
+        async def watch_once(self) -> None:
+            raise AssertionError("watchdog should still be sleeping")
+
+        async def stop_all(self) -> None:
+            events.append("stop_all")
+            raise RuntimeError(stop_secret)
+
+    database = _TrackingWatchdogDatabase(events)
+    supervisor = FailingSupervisor()
+    monkeypatch.setattr(lifespan_module, "create_database", lambda _: database)
+    monkeypatch.setattr(lifespan_module, "WorkerSupervisor", lambda **_: supervisor)
+    app = create_app(_settings(tmp_path))
+
+    with pytest.raises(asyncio.CancelledError) as raised:
+        async with app.router.lifespan_context(app):
+            watchdog_task = app.state.worker_watchdog_task
+            watchdog_task.cancel("watchdog cancelled before shutdown")
+            await asyncio.sleep(0)
+            assert watchdog_task.cancelled()
+
+    assert events == ["stop_all", "dispose"]
+    assert raised.value.__notes__ == ["Additional cleanup failure occurred."]
+    assert stop_secret not in raised.value.__notes__[0]
+    assert not hasattr(app.state, "worker_watchdog_task")
+    assert not hasattr(app.state, "worker_supervisor")
+    assert not hasattr(app.state, "database")
+
+
+@pytest.mark.asyncio
 async def test_watchdog_startup_failure_stops_supervisor_and_disposes_database(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
