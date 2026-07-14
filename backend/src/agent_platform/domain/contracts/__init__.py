@@ -1,4 +1,5 @@
 from agent_platform.domain.contracts.base import FrozenContractModel, VersionedContractModel
+from agent_platform.domain.contracts.capabilities import CapabilityRequest, CapabilityRisk
 from agent_platform.domain.contracts.references import (
     ArtifactRef,
     ContentHash,
@@ -24,6 +25,8 @@ from agent_platform.domain.contracts.tools import (
 __all__ = [
     "STAGE_ORDER",
     "ArtifactRef",
+    "CapabilityRequest",
+    "CapabilityRisk",
     "ContentHash",
     "ContractId",
     "ContractName",

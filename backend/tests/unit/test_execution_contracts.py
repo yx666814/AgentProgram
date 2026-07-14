@@ -6,6 +6,8 @@ from pydantic import ValidationError
 
 from agent_platform.domain.contracts import (
     ArtifactRef,
+    CapabilityRequest,
+    CapabilityRisk,
     ContentHash,
     ContractId,
     ContractName,
@@ -599,3 +601,185 @@ def test_tool_result_output_defaults_are_independent_and_fields_are_frozen() -> 
     assert second.output == {}
     with pytest.raises(ValidationError):
         first.status = ToolExecutionStatus.FAILED
+
+
+def _capability_request_data() -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "request_id": "capability_request_1",
+        "correlation_id": "correlation_1",
+        "project_id": "project_1",
+        "workflow_id": "workflow_1",
+        "stage_run_id": "stage_run_1",
+        "task_id": "task_1",
+        "requester_role": Stage.BUILDER,
+        "requested_capability": "shell.run_project_command",
+        "reason": "Run the project migration check",
+        "target_paths": ("migrations/versions",),
+        "proposed_command": ("python", "-m", "alembic", "check"),
+        "expected_changes": "No project files should change",
+        "risk_level": CapabilityRisk.MEDIUM,
+        "idempotency_key": "capability-key-0001",
+        "requested_at": datetime(2026, 7, 14, tzinfo=UTC),
+        "expires_after_task": True,
+    }
+
+
+def test_capability_risk_values_are_stable() -> None:
+    assert {risk.value for risk in CapabilityRisk} == {"low", "medium", "high"}
+
+
+def test_capability_request_preserves_complete_bounded_intent() -> None:
+    request = CapabilityRequest(**_capability_request_data())
+
+    assert request.requester_role is Stage.BUILDER
+    assert request.requested_capability == "shell.run_project_command"
+    assert request.reason == "Run the project migration check"
+    assert request.target_paths == ("migrations/versions",)
+    assert request.proposed_command == ("python", "-m", "alembic", "check")
+    assert request.expected_changes == "No project files should change"
+    assert request.risk_level is CapabilityRisk.MEDIUM
+    assert request.expires_after_task is True
+
+
+def test_capability_request_parses_strict_wire_json() -> None:
+    request = CapabilityRequest.model_validate_json(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "request_id": "capability_request_1",
+                "correlation_id": "correlation_1",
+                "project_id": "project_1",
+                "workflow_id": "workflow_1",
+                "stage_run_id": "stage_run_1",
+                "task_id": "task_1",
+                "requester_role": "reviewer",
+                "requested_capability": "shell.security_scan",
+                "reason": "Run the registered security scanner",
+                "target_paths": ["src", "tests/安全"],
+                "proposed_command": ["scanner", "--project", "."],
+                "expected_changes": "Only a report should be created",
+                "risk_level": "low",
+                "idempotency_key": "capability-key-0001",
+                "requested_at": "2026-07-14T00:00:00Z",
+                "expires_after_task": True,
+            }
+        )
+    )
+
+    assert request.requester_role is Stage.REVIEWER
+    assert request.risk_level is CapabilityRisk.LOW
+    assert request.target_paths == ("src", "tests/安全")
+    assert request.proposed_command == ("scanner", "--project", ".")
+    assert request.requested_at.utcoffset() == timedelta(0)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "",
+        "/outside",
+        "C:/outside",
+        "../outside",
+        "src/../outside",
+        "./src/main.py",
+        "src\\main.py",
+        "src//main.py",
+        "src/main.py ",
+        "src/\x00main.py",
+    ],
+)
+def test_capability_request_rejects_noncanonical_target_path(path: str) -> None:
+    data = _capability_request_data()
+    data["target_paths"] = (path,)
+
+    with pytest.raises(ValidationError):
+        CapabilityRequest.model_validate(data)
+
+
+def test_capability_request_rejects_duplicate_target_paths() -> None:
+    data = _capability_request_data()
+    data["target_paths"] = ("src", "src")
+
+    with pytest.raises(ValidationError):
+        CapabilityRequest.model_validate(data)
+
+
+def test_capability_request_allows_unicode_project_relative_paths() -> None:
+    data = _capability_request_data()
+    data["target_paths"] = ("文档/需求.md",)
+
+    request = CapabilityRequest.model_validate(data)
+
+    assert request.target_paths == ("文档/需求.md",)
+
+
+@pytest.mark.parametrize(
+    "proposed_command",
+    [(), ("",), ["python", "-V"], "python -V"],
+)
+def test_capability_request_rejects_invalid_command_intent(
+    proposed_command: object,
+) -> None:
+    data = _capability_request_data()
+    data["proposed_command"] = proposed_command
+
+    with pytest.raises(ValidationError):
+        CapabilityRequest.model_validate(data)
+
+
+@pytest.mark.parametrize("field", ["reason", "expected_changes"])
+@pytest.mark.parametrize("value", ["", "   "])
+def test_capability_request_rejects_blank_explanation_fields(
+    field: str,
+    value: str,
+) -> None:
+    data = _capability_request_data()
+    data[field] = value
+
+    with pytest.raises(ValidationError):
+        CapabilityRequest.model_validate(data)
+
+
+@pytest.mark.parametrize("expires_after_task", [False, 1, "true"])
+def test_capability_request_cannot_outlive_task(expires_after_task: object) -> None:
+    data = _capability_request_data()
+    data["expires_after_task"] = expires_after_task
+
+    with pytest.raises(ValidationError):
+        CapabilityRequest.model_validate(data)
+
+
+def test_capability_request_rejects_non_utc_timestamp() -> None:
+    data = _capability_request_data()
+    data["requested_at"] = datetime(
+        2026,
+        7,
+        14,
+        tzinfo=timezone(timedelta(hours=8)),
+    )
+
+    with pytest.raises(ValidationError):
+        CapabilityRequest.model_validate(data)
+
+
+def test_capability_request_defaults_are_bounded_and_fields_are_frozen() -> None:
+    data = _capability_request_data()
+    del data["target_paths"]
+    del data["proposed_command"]
+    del data["expires_after_task"]
+    request = CapabilityRequest(**data)
+
+    assert request.target_paths == ()
+    assert request.proposed_command is None
+    assert request.expires_after_task is True
+    with pytest.raises(ValidationError):
+        request.risk_level = CapabilityRisk.HIGH
+
+
+def test_capability_request_forbids_extra_fields() -> None:
+    data = _capability_request_data()
+    data["approved"] = True
+
+    with pytest.raises(ValidationError):
+        CapabilityRequest.model_validate(data)
