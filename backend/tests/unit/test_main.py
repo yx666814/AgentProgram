@@ -17,17 +17,20 @@ def test_run_consumes_validated_host_and_port(
         data_root=tmp_path,
         session_token="local-secret",
     )
-    calls: list[tuple[object, str, int]] = []
+    calls: list[tuple[object, str, int, object]] = []
+    prepared: list[str] = []
+    monkeypatch.setattr(main_module, "prepare_uvicorn_logging", prepared.append)
     monkeypatch.setattr(
         main_module.uvicorn,
         "run",
-        lambda app, *, host, port: calls.append((app, host, port)),
+        lambda app, *, host, port, log_config: calls.append((app, host, port, log_config)),
     )
 
     main_module.run(settings)
 
     assert calls[0][0].state.settings is settings
-    assert calls[0][1:] == ("127.0.0.1", 43210)
+    assert calls[0][1:] == ("127.0.0.1", 43210, None)
+    assert prepared == ["INFO"]
 
 
 def test_main_builds_settings_from_environment_and_delegates(

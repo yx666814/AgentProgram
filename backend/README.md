@@ -33,6 +33,18 @@ host `127.0.0.1`; port `0` lets the operating system select an available local p
 migrations before starting the API because the production lifespan does not create database
 tables.
 
+Runtime diagnostics are written as bounded UTF-8 JSON Lines to
+`$AGENT_PLATFORM_DATA_ROOT/logs/backend.jsonl` and mirrored to stderr. Uvicorn access/error
+records use the same redaction path after application startup; unknown Worker stderr is stored
+only as byte count, SHA-256, and safety flags. Optional logging controls are:
+
+- `AGENT_PLATFORM_LOG_FILE_MAX_BYTES`
+- `AGENT_PLATFORM_LOG_RECORD_MAX_BYTES`
+- `AGENT_PLATFORM_LOG_FILE_RETAINED_COUNT`
+- `AGENT_PLATFORM_LOG_FILE_RETENTION_DAYS`
+- `AGENT_PLATFORM_LOG_QUEUE_CAPACITY`
+- `AGENT_PLATFORM_LOG_SHUTDOWN_DRAIN_SECONDS`
+
 ## Verification
 
 ```powershell

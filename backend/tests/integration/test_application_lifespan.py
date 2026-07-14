@@ -109,6 +109,38 @@ async def test_database_probe_failure_disposes_database_and_leaves_no_state(
 
 
 @pytest.mark.asyncio
+async def test_logging_configuration_failure_unregisters_session_secret(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    closed = False
+
+    class TrackingRegistration:
+        def close(self) -> None:
+            nonlocal closed
+            closed = True
+
+    monkeypatch.setattr(
+        lifespan_module,
+        "register_known_secret",
+        lambda _: TrackingRegistration(),
+    )
+
+    def fail_logging(*_: object, **__: object) -> None:
+        raise RuntimeError("logging configuration failed")
+
+    monkeypatch.setattr(lifespan_module, "configure_logging", fail_logging)
+    app = create_app(_settings(tmp_path))
+
+    with pytest.raises(RuntimeError, match="logging configuration failed"):
+        async with app.router.lifespan_context(app):
+            pass
+
+    assert closed is True
+    assert not hasattr(app.state, "logging_runtime")
+
+
+@pytest.mark.asyncio
 async def test_production_lifespan_does_not_create_database_schema(
     tmp_path: Path,
 ) -> None:
@@ -192,10 +224,24 @@ async def test_application_lifespan_initializes_resources_in_required_order(
         events.append("ensure_directories")
         real_ensure_directories(current_settings)
 
-    def configure_logging(log_root: Path, level: str) -> None:
+    class TrackingSecretRegistration:
+        def close(self) -> None:
+            events.append("unregister_secret")
+
+    def register_known_secret(value: str) -> TrackingSecretRegistration:
+        assert value == settings.session_token
+        events.append("register_secret")
+        return TrackingSecretRegistration()
+
+    class TrackingLoggingRuntime:
+        def close(self) -> None:
+            events.append("close_logging")
+
+    def configure_logging(log_root: Path, level: str, **_: object) -> TrackingLoggingRuntime:
         assert log_root == settings.log_root
         assert level == settings.log_level
         events.append("configure_logging")
+        return TrackingLoggingRuntime()
 
     def tracked_create_database(path: Path) -> Database:
         assert path == settings.database_path
@@ -212,6 +258,7 @@ async def test_application_lifespan_initializes_resources_in_required_order(
         return WorkerSupervisor(heartbeat_timeout=heartbeat_timeout)
 
     monkeypatch.setattr(Settings, "ensure_directories", ensure_directories)
+    monkeypatch.setattr(lifespan_module, "register_known_secret", register_known_secret)
     monkeypatch.setattr(
         lifespan_module,
         "configure_logging",
@@ -229,10 +276,13 @@ async def test_application_lifespan_initializes_resources_in_required_order(
 
     assert events == [
         "ensure_directories",
+        "register_secret",
         "configure_logging",
         "create_database",
         "probe_database",
         "worker_supervisor",
+        "close_logging",
+        "unregister_secret",
     ]
 
 

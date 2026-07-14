@@ -10,7 +10,8 @@ from sqlalchemy import text
 from agent_platform.config.settings import Settings
 from agent_platform.infrastructure.async_cleanup import await_cancellation_resistant
 from agent_platform.infrastructure.database.session import Database, create_database
-from agent_platform.infrastructure.logging.configure import configure_logging
+from agent_platform.infrastructure.logging.configure import LoggingRuntime, configure_logging
+from agent_platform.infrastructure.redaction import SecretRegistration, register_known_secret
 from agent_platform.infrastructure.workers.supervisor import WorkerSupervisor
 
 _CLEANUP_FAILURE_NOTE = "Additional cleanup failure occurred."
@@ -76,7 +77,9 @@ async def _cancel_worker_watchdog(watchdog_task: asyncio.Task[None]) -> None:
 async def _shutdown_resources(
     worker_watchdog_task: asyncio.Task[None] | None,
     worker_supervisor: WorkerSupervisor | None,
-    database: Database,
+    database: Database | None,
+    logging_runtime: LoggingRuntime | None,
+    secret_registration: SecretRegistration | None,
 ) -> None:
     first_error: BaseException | None = None
 
@@ -97,10 +100,21 @@ async def _shutdown_resources(
             await worker_supervisor.stop_all()
         except BaseException as error:
             remember_error(error)
-    try:
-        await database.dispose()
-    except BaseException as error:
-        remember_error(error)
+    if database is not None:
+        try:
+            await database.dispose()
+        except BaseException as error:
+            remember_error(error)
+    if logging_runtime is not None:
+        try:
+            logging_runtime.close()
+        except BaseException as error:
+            remember_error(error)
+    if secret_registration is not None:
+        try:
+            secret_registration.close()
+        except BaseException as error:
+            remember_error(error)
     if first_error is not None:
         raise first_error
 
@@ -120,7 +134,12 @@ async def _await_cleanup_preserving_primary(
 
 
 def _clear_resource_state(app: FastAPI) -> None:
-    for attribute in ("worker_watchdog_task", "worker_supervisor", "database"):
+    for attribute in (
+        "worker_watchdog_task",
+        "worker_supervisor",
+        "database",
+        "logging_runtime",
+    ):
         if hasattr(app.state, attribute):
             delattr(app.state, attribute)
 
@@ -130,12 +149,25 @@ def build_lifespan(
 ) -> Callable[[FastAPI], AbstractAsyncContextManager[None]]:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        settings.ensure_directories()
-        configure_logging(settings.log_root, settings.log_level)
-        database = create_database(settings.database_path)
+        secret_registration: SecretRegistration | None = None
+        logging_runtime: LoggingRuntime | None = None
+        database: Database | None = None
         worker_supervisor: WorkerSupervisor | None = None
         worker_watchdog_task: asyncio.Task[None] | None = None
         try:
+            settings.ensure_directories()
+            secret_registration = register_known_secret(settings.session_token)
+            logging_runtime = configure_logging(
+                settings.log_root,
+                settings.log_level,
+                max_bytes=settings.log_file_max_bytes,
+                max_record_bytes=settings.log_record_max_bytes,
+                retained_file_count=settings.log_file_retained_count,
+                retention_age=settings.log_file_retention_age,
+                queue_capacity=settings.log_queue_capacity,
+                shutdown_drain_timeout=settings.log_shutdown_drain_timeout,
+            )
+            database = create_database(settings.database_path)
             await _probe_database(database)
             worker_supervisor = WorkerSupervisor(
                 heartbeat_timeout=timedelta(seconds=settings.worker_heartbeat_timeout_seconds)
@@ -147,6 +179,7 @@ def build_lifespan(
             app.state.database = database
             app.state.worker_supervisor = worker_supervisor
             app.state.worker_watchdog_task = worker_watchdog_task
+            app.state.logging_runtime = logging_runtime
         except BaseException as startup_error:
             try:
                 await _await_cleanup_preserving_primary(
@@ -154,6 +187,8 @@ def build_lifespan(
                         worker_watchdog_task,
                         worker_supervisor,
                         database,
+                        logging_runtime,
+                        secret_registration,
                     ),
                     startup_error,
                 )
@@ -170,6 +205,8 @@ def build_lifespan(
                     worker_watchdog_task,
                     worker_supervisor,
                     database,
+                    logging_runtime,
+                    secret_registration,
                 )
                 if body_error is None:
                     await await_cancellation_resistant(cleanup)

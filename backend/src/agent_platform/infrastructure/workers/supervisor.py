@@ -8,9 +8,11 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import psutil  # type: ignore[import-untyped]
+import structlog
 
 from agent_platform.domain.shared.ids import new_id
 from agent_platform.infrastructure.async_cleanup import await_cancellation_resistant
+from agent_platform.infrastructure.workers.stderr import WorkerStderrDecoder, WorkerStderrReporter
 from agent_platform.interfaces.ipc.framing import FrameDecoder, FramingError, encode_frame
 from agent_platform.interfaces.ipc.messages import IpcMessage, MessageType
 
@@ -21,6 +23,7 @@ _SECONDARY_CLEANUP_FAILURE_NOTE = "Additional worker cleanup failure occurred."
 _POSIX_GROUP_TERM_TIMEOUT_SECONDS = 0.5
 _POSIX_GROUP_KILL_TIMEOUT_SECONDS = 0.5
 _PIPE_CLOSE_TIMEOUT_SECONDS = 0.5
+_LOGGER = structlog.get_logger(__name__)
 
 
 class WorkerError(RuntimeError):
@@ -763,13 +766,24 @@ class WorkerSupervisor:
         reader = handle.process.stderr
         if reader is None:
             return
+        decoder = WorkerStderrDecoder()
+        reporter = WorkerStderrReporter(
+            _LOGGER.bind(
+                source="worker",
+                worker_id=handle.worker_id,
+                project_id=handle.project_id,
+            )
+        )
         try:
-            while await reader.read(65536):
-                pass
+            while chunk := await reader.read(16 * 1024):
+                reporter.emit_all(decoder.feed(chunk))
+            reporter.emit_all(decoder.finish())
         except asyncio.CancelledError:
             raise
-        except Exception:
-            return
+        except Exception as error:
+            reporter.reader_failed(type(error).__name__)
+        finally:
+            reporter.flush_summary()
 
     async def _close_stdin(
         self,

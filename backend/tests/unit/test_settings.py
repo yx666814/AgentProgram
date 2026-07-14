@@ -119,3 +119,39 @@ def test_watchdog_interval_must_be_shorter_than_heartbeat_timeout(tmp_path: Path
             worker_watchdog_interval_seconds=15.0,
             worker_heartbeat_timeout_seconds=15.0,
         )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("log_file_max_bytes", 1024),
+        ("log_record_max_bytes", 512),
+        ("log_file_retained_count", 0),
+        ("log_file_retention_days", 0),
+        ("log_queue_capacity", 1),
+        ("log_shutdown_drain_seconds", 0.0),
+    ],
+)
+def test_settings_rejects_invalid_logging_bounds(
+    tmp_path: Path,
+    field: str,
+    value: int | float,
+) -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            data_root=tmp_path,
+            session_token="local-secret",
+            **{field: value},
+        )
+
+
+def test_settings_exposes_logging_durations(tmp_path: Path) -> None:
+    settings = Settings(
+        data_root=tmp_path,
+        session_token="local-secret",
+        log_file_retention_days=7,
+        log_shutdown_drain_seconds=0.5,
+    )
+
+    assert settings.log_file_retention_age.total_seconds() == 7 * 24 * 60 * 60
+    assert settings.log_shutdown_drain_timeout.total_seconds() == 0.5
