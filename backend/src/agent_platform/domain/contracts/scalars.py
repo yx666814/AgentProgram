@@ -27,6 +27,10 @@ IdempotencyKey = Annotated[
     ),
 ]
 PositiveVersion = Annotated[int, Field(gt=0)]
+SemanticVersion = Annotated[
+    str,
+    Field(pattern=r"^[0-9]+\.[0-9]+\.[0-9]+$"),
+]
 
 
 def require_utc(value: datetime, *, field_name: str) -> datetime:

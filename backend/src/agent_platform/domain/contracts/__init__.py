@@ -20,8 +20,15 @@ from agent_platform.domain.contracts.scalars import (
     ContractName,
     IdempotencyKey,
     PositiveVersion,
+    SemanticVersion,
     require_project_relative_path,
     require_utc,
+)
+from agent_platform.domain.contracts.stage_contracts import (
+    CapabilityAccess,
+    StageContract,
+    StagePathPolicy,
+    StagePathScope,
 )
 from agent_platform.domain.contracts.stages import STAGE_ORDER, Stage, predecessor, successor
 from agent_platform.domain.contracts.tools import (
@@ -34,6 +41,7 @@ from agent_platform.domain.contracts.tools import (
 __all__ = [
     "STAGE_ORDER",
     "ArtifactRef",
+    "CapabilityAccess",
     "CapabilityRequest",
     "CapabilityRisk",
     "ContentHash",
@@ -49,7 +57,11 @@ __all__ = [
     "RoleCard",
     "RuntimeInvariant",
     "SECONDARY_REVIEWER_LIMIT",
+    "SemanticVersion",
     "Stage",
+    "StageContract",
+    "StagePathPolicy",
+    "StagePathScope",
     "StageRunState",
     "ToolExecutionRequest",
     "ToolExecutionStatus",
