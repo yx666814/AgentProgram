@@ -5,19 +5,24 @@ from typing import Annotated, Any
 
 from pydantic import AwareDatetime, Field, field_validator, model_validator
 
-from agent_platform.domain.contracts.base import VersionedContractModel
+from agent_platform.domain.contracts.base import FrozenContractModel, VersionedContractModel
 from agent_platform.domain.contracts.scalars import (
     ContractId,
     PositiveVersion,
     require_project_relative_path,
     require_utc,
 )
+from agent_platform.domain.shared.json_values import validate_json_payload
 
 ProjectName = Annotated[str, Field(min_length=1, max_length=120)]
 ProjectGoal = Annotated[str, Field(min_length=1, max_length=10_000)]
 AbsoluteWorkspacePath = Annotated[str, Field(min_length=1, max_length=32_767)]
 CommandArgument = Annotated[str, Field(min_length=1, max_length=4096)]
 ContentHash = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+PreflightCheckCode = Annotated[
+    str,
+    Field(pattern=r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$", max_length=120),
+]
 
 
 class WorkspaceMode(StrEnum):
@@ -29,6 +34,13 @@ class ProjectStatus(StrEnum):
     PREFLIGHT_REQUIRED = "preflight_required"
     READY = "ready"
     CLOSED = "closed"
+
+
+class PreflightStatus(StrEnum):
+    PASS = "pass"
+    WARNING = "warning"
+    NEEDS_FIX = "needs_fix"
+    FAIL = "fail"
 
 
 class Project(VersionedContractModel):
@@ -155,6 +167,43 @@ class PersistedProjectManifest(VersionedContractModel):
         return require_utc(value, field_name="manifest updated_at")
 
 
+class PreflightCheck(FrozenContractModel):
+    code: PreflightCheckCode
+    status: PreflightStatus
+    message: Annotated[str, Field(min_length=1, max_length=500)]
+    evidence: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("evidence", mode="before")
+    @classmethod
+    def require_json_evidence(cls, value: object) -> dict[str, Any]:
+        return validate_json_payload(value)
+
+
+class ProjectPreflightResult(VersionedContractModel):
+    id: ContractId
+    project_id: ContractId
+    manifest_version: PositiveVersion
+    status: PreflightStatus
+    checks: tuple[PreflightCheck, ...]
+    started_at: AwareDatetime
+    completed_at: AwareDatetime
+
+    @field_validator("started_at", "completed_at")
+    @classmethod
+    def require_utc_timestamps(cls, value: datetime) -> datetime:
+        return require_utc(value, field_name="preflight timestamp")
+
+    @model_validator(mode="after")
+    def require_consistent_status(self) -> "ProjectPreflightResult":
+        if not self.checks:
+            raise ValueError("preflight must contain checks")
+        if self.completed_at < self.started_at:
+            raise ValueError("completed_at must not precede started_at")
+        if self.status is not worst_preflight_status(self.checks):
+            raise ValueError("preflight status must match the worst check")
+        return self
+
+
 def canonical_manifest_document(manifest: ProjectManifest) -> dict[str, Any]:
     return manifest.model_dump(mode="json")
 
@@ -164,3 +213,13 @@ def _validate_manifest_path(value: object) -> str:
     if path == ".agent" or path.startswith(".agent/"):
         raise ValueError(".agent is reserved for AgentProgram metadata")
     return path
+
+
+def worst_preflight_status(checks: tuple[PreflightCheck, ...]) -> PreflightStatus:
+    rank = {
+        PreflightStatus.PASS: 0,
+        PreflightStatus.WARNING: 1,
+        PreflightStatus.NEEDS_FIX: 2,
+        PreflightStatus.FAIL: 3,
+    }
+    return max((check.status for check in checks), key=rank.__getitem__)

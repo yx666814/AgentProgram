@@ -9,6 +9,7 @@ from agent_platform.domain.projects import (
     PersistedProjectManifest,
     Project,
     ProjectManifest,
+    ProjectPreflightResult,
     ProjectRegistration,
     ProjectStatus,
     Workspace,
@@ -17,6 +18,7 @@ from agent_platform.domain.projects import (
 from agent_platform.domain.shared.errors import DomainError, ErrorCategory
 from agent_platform.infrastructure.database.models import (
     ProjectManifestRow,
+    ProjectPreflightRow,
     ProjectRow,
     WorkspaceRow,
 )
@@ -27,6 +29,16 @@ class ProjectManifestConflictError(DomainError):
         super().__init__(
             code="project.manifest_version_conflict",
             message="Manifest version has changed",
+            category=ErrorCategory.CONFLICT,
+        )
+
+
+class ProjectVersionConflictError(DomainError):
+    def __init__(self, current_version: int) -> None:
+        super().__init__(
+            code="project.version_conflict",
+            message="Project version has changed",
+            details={"current_version": current_version},
             category=ErrorCategory.CONFLICT,
         )
 
@@ -151,6 +163,68 @@ class SqlAlchemyProjectRepository:
             updated_at=row.updated_at,
         )
 
+    async def record_preflight(
+        self,
+        result: ProjectPreflightResult,
+        *,
+        expected_project_version: int,
+    ) -> Project:
+        project = await self._session.get(ProjectRow, result.project_id)
+        if project is None:
+            raise DomainError(
+                code="project.not_found",
+                message="Project was not found",
+                category=ErrorCategory.NOT_FOUND,
+            )
+        if project.version != expected_project_version:
+            raise ProjectVersionConflictError(project.version)
+        self._session.add(
+            ProjectPreflightRow(
+                id=result.id,
+                project_id=result.project_id,
+                schema_version=result.schema_version,
+                manifest_version=result.manifest_version,
+                status=result.status.value,
+                checks=[check.model_dump(mode="json") for check in result.checks],
+                started_at=result.started_at,
+                completed_at=result.completed_at,
+            )
+        )
+        project.status = (
+            ProjectStatus.READY.value
+            if result.status.value in {"pass", "warning"}
+            else ProjectStatus.PREFLIGHT_REQUIRED.value
+        )
+        project.version += 1
+        project.updated_at = result.completed_at
+        await self._session.flush()
+        return _project_from_row(project)
+
+    async def get_latest_preflight(self, project_id: str) -> ProjectPreflightResult | None:
+        statement = (
+            select(ProjectPreflightRow)
+            .where(ProjectPreflightRow.project_id == project_id)
+            .order_by(ProjectPreflightRow.completed_at.desc(), ProjectPreflightRow.id.desc())
+            .limit(1)
+        )
+        row = await self._session.scalar(statement)
+        if row is None:
+            return None
+        document = {
+            "schema_version": row.schema_version,
+            "id": row.id,
+            "project_id": row.project_id,
+            "manifest_version": row.manifest_version,
+            "status": row.status,
+            "checks": row.checks,
+            "started_at": row.started_at.isoformat(),
+            "completed_at": row.completed_at.isoformat(),
+        }
+        return ProjectPreflightResult.model_validate_json(
+            json.dumps(document, ensure_ascii=False, separators=(",", ":")),
+            strict=True,
+        )
+
 
 def _registration_from_rows(
     project: ProjectRow,
@@ -177,4 +251,17 @@ def _registration_from_rows(
             canonical_root_path=workspace.canonical_root_path,
             created_at=workspace.created_at,
         ),
+    )
+
+
+def _project_from_row(project: ProjectRow) -> Project:
+    return Project(
+        schema_version=1,
+        id=project.id,
+        name=project.name,
+        goal=project.goal,
+        status=ProjectStatus(project.status),
+        version=project.version,
+        created_at=project.created_at,
+        updated_at=project.updated_at,
     )

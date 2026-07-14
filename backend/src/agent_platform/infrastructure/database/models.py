@@ -191,3 +191,27 @@ class ProjectInstructionRow(Base):
     relative_path: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class ProjectPreflightRow(Base):
+    __tablename__ = "project_preflight_runs"
+    __table_args__ = (
+        Index(
+            "ix_project_preflight_runs_latest",
+            "project_id",
+            "completed_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    manifest_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    checks: Mapped[list[dict[str, object]]] = mapped_column(JSON, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    completed_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)

@@ -1,14 +1,18 @@
 from agent_platform.domain.projects.models import (
     PersistedProjectManifest,
+    PreflightCheck,
+    PreflightStatus,
     Project,
     ProjectCommand,
     ProjectManifest,
     ProjectMetadata,
+    ProjectPreflightResult,
     ProjectRegistration,
     ProjectStatus,
     Workspace,
     WorkspaceMode,
     canonical_manifest_document,
+    worst_preflight_status,
 )
 
 __all__ = [
@@ -17,9 +21,13 @@ __all__ = [
     "ProjectManifest",
     "ProjectMetadata",
     "PersistedProjectManifest",
+    "PreflightCheck",
+    "PreflightStatus",
+    "ProjectPreflightResult",
     "ProjectRegistration",
     "ProjectStatus",
     "Workspace",
     "WorkspaceMode",
     "canonical_manifest_document",
+    "worst_preflight_status",
 ]

@@ -1,6 +1,7 @@
 from agent_platform.infrastructure.projects.metadata import (
     ProjectMetadataError,
     ProjectMetadataStore,
+    project_document_hash,
 )
 from agent_platform.infrastructure.projects.paths import (
     UnsafeWorkspacePathError,
@@ -13,6 +14,7 @@ from agent_platform.infrastructure.projects.paths import (
 __all__ = [
     "ProjectMetadataError",
     "ProjectMetadataStore",
+    "project_document_hash",
     "UnsafeWorkspacePathError",
     "canonical_workspace_key",
     "create_managed_workspace_root",

@@ -1,6 +1,11 @@
 from typing import Protocol
 
-from agent_platform.domain.projects import PersistedProjectManifest, ProjectRegistration
+from agent_platform.domain.projects import (
+    PersistedProjectManifest,
+    Project,
+    ProjectPreflightResult,
+    ProjectRegistration,
+)
 
 
 class ProjectRepository(Protocol):
@@ -23,3 +28,12 @@ class ProjectRepository(Protocol):
     ) -> None: ...
 
     async def get_manifest(self, project_id: str) -> PersistedProjectManifest | None: ...
+
+    async def record_preflight(
+        self,
+        result: ProjectPreflightResult,
+        *,
+        expected_project_version: int,
+    ) -> Project: ...
+
+    async def get_latest_preflight(self, project_id: str) -> ProjectPreflightResult | None: ...

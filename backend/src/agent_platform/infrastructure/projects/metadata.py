@@ -190,6 +190,10 @@ def _sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def project_document_hash(model: ProjectMetadata | ProjectManifest) -> str:
+    return _sha256_bytes(_canonical_json_bytes(model))
+
+
 def _is_link_or_reparse(metadata: os.stat_result) -> bool:
     return stat.S_ISLNK(metadata.st_mode) or bool(
         getattr(metadata, "st_file_attributes", 0) & _WINDOWS_REPARSE_POINT
