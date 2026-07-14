@@ -14,6 +14,12 @@ from agent_platform.domain.contracts.scalars import (
     require_utc,
 )
 from agent_platform.domain.contracts.stages import STAGE_ORDER, Stage, predecessor, successor
+from agent_platform.domain.contracts.tools import (
+    ToolExecutionRequest,
+    ToolExecutionStatus,
+    ToolFailure,
+    ToolResult,
+)
 
 __all__ = [
     "STAGE_ORDER",
@@ -27,6 +33,10 @@ __all__ = [
     "ProjectCheckpointRef",
     "RoleCard",
     "Stage",
+    "ToolExecutionRequest",
+    "ToolExecutionStatus",
+    "ToolFailure",
+    "ToolResult",
     "VersionedContractModel",
     "predecessor",
     "require_project_relative_path",
