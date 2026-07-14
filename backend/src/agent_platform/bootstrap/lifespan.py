@@ -170,7 +170,8 @@ def build_lifespan(
             database = create_database(settings.database_path)
             await _probe_database(database)
             worker_supervisor = WorkerSupervisor(
-                heartbeat_timeout=timedelta(seconds=settings.worker_heartbeat_timeout_seconds)
+                heartbeat_timeout=timedelta(seconds=settings.worker_heartbeat_timeout_seconds),
+                ipc_replay_window_capacity=settings.worker_ipc_replay_window_capacity,
             )
             worker_watchdog_task = _start_worker_watchdog(
                 worker_supervisor,

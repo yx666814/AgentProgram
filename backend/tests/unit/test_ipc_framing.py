@@ -100,9 +100,15 @@ def test_message_rejects_unsupported_type() -> None:
         )
 
 
-def test_message_rejects_negative_sequence() -> None:
+@pytest.mark.parametrize("sequence", [0, -1])
+def test_message_rejects_non_positive_sequence(sequence: int) -> None:
     with pytest.raises(ValidationError):
-        IpcMessage(message_id="m1", sequence=-1, project_id="p", type="event")
+        IpcMessage(message_id="m1", sequence=sequence, project_id="p", type="event")
+
+
+def test_message_rejects_overlong_message_id() -> None:
+    with pytest.raises(ValidationError):
+        IpcMessage(message_id="m" * 129, sequence=1, project_id="p", type="event")
 
 
 @pytest.mark.parametrize(
@@ -874,7 +880,7 @@ def test_decoder_compacts_once_for_many_coalesced_frames() -> None:
 
     messages = [
         IpcMessage(message_id=f"m{sequence}", sequence=sequence, project_id="p", type="ack")
-        for sequence in range(100)
+        for sequence in range(1, 101)
     ]
     decoder = CountingCompactionDecoder()
 

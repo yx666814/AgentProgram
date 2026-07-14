@@ -10,6 +10,12 @@ from typing import Any, Never
 from agent_platform.domain.shared.ids import new_id
 from agent_platform.interfaces.ipc.framing import FrameDecoder, FramingError, encode_frame
 from agent_platform.interfaces.ipc.messages import IpcMessage, MessageType
+from agent_platform.interfaces.ipc.replay import (
+    DEFAULT_REPLAY_WINDOW_CAPACITY,
+    IpcReplayError,
+    ReplayWindow,
+    parse_replay_window_capacity_arg,
+)
 
 
 class _StderrArgumentParser(argparse.ArgumentParser):
@@ -46,6 +52,12 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--project-id", required=True, type=_project_id)
     parser.add_argument("--worker-id", type=_project_id)
     parser.add_argument("--heartbeat-interval", type=_heartbeat_interval, default=5.0)
+    parser.add_argument(
+        "--ipc-replay-window-capacity",
+        type=parse_replay_window_capacity_arg,
+        default=DEFAULT_REPLAY_WINDOW_CAPACITY,
+        help=argparse.SUPPRESS,
+    )
     return parser.parse_args(argv)
 
 
@@ -127,12 +139,13 @@ class _WorkerProtocol:
         project_id: str,
         heartbeat_interval: float,
         worker_id: str | None = None,
+        replay_window_capacity: int = DEFAULT_REPLAY_WINDOW_CAPACITY,
     ) -> None:
         self._project_id = project_id
         self._heartbeat_interval = heartbeat_interval
         self._worker_id = worker_id or new_id("worker")
         self._outbound_sequence = 0
-        self._last_input_sequence = 0
+        self._inbound_replay = ReplayWindow(replay_window_capacity)
         self._write_lock = asyncio.Lock()
         self._heartbeat_task: asyncio.Task[None] | None = None
 
@@ -177,7 +190,7 @@ class _WorkerProtocol:
                 {
                     "worker_id": self._worker_id,
                     "active_task": None,
-                    "last_sequence": self._last_input_sequence,
+                    "last_sequence": self._inbound_replay.last_sequence,
                 },
             )
 
@@ -193,6 +206,13 @@ class _WorkerProtocol:
             pass
 
     async def _handle_message(self, message: IpcMessage) -> bool:
+        try:
+            self._inbound_replay.accept(
+                sequence=message.sequence,
+                message_id=message.message_id,
+            )
+        except IpcReplayError:
+            raise _WorkerInputProtocolError from None
         if message.project_id != self._project_id:
             await self._send(
                 "response",
@@ -201,7 +221,6 @@ class _WorkerProtocol:
             )
             return False
 
-        self._last_input_sequence = message.sequence
         if message.type == "shutdown":
             await self._stop_heartbeat()
             await self._send(
@@ -291,9 +310,15 @@ async def _run(
     project_id: str,
     heartbeat_interval: float,
     worker_id: str | None = None,
+    replay_window_capacity: int = DEFAULT_REPLAY_WINDOW_CAPACITY,
 ) -> int:
     try:
-        return await _WorkerProtocol(project_id, heartbeat_interval, worker_id).run()
+        return await _WorkerProtocol(
+            project_id,
+            heartbeat_interval,
+            worker_id,
+            replay_window_capacity,
+        ).run()
     except _WorkerInputProtocolError:
         _safe_stderr("protocol error", FramingError)
         return 2
@@ -307,7 +332,14 @@ async def _run(
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
-    return asyncio.run(_run(args.project_id, args.heartbeat_interval, args.worker_id))
+    return asyncio.run(
+        _run(
+            args.project_id,
+            args.heartbeat_interval,
+            args.worker_id,
+            args.ipc_replay_window_capacity,
+        )
+    )
 
 
 if __name__ == "__main__":

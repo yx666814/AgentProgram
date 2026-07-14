@@ -45,6 +45,11 @@ only as byte count, SHA-256, and safety flags. Optional logging controls are:
 - `AGENT_PLATFORM_LOG_QUEUE_CAPACITY`
 - `AGENT_PLATFORM_LOG_SHUTDOWN_DRAIN_SECONDS`
 
+IPC v1 requires positive consecutive sequence numbers in both directions. Recent message IDs are
+retained only as SHA-256 digests in a per-process replay window. Configure its capacity with
+`AGENT_PLATFORM_WORKER_IPC_REPLAY_WINDOW_CAPACITY` (default `4096`, supported `64`–`65536`).
+Wire message IDs are limited to 128 characters; the IPC protocol version remains `1`.
+
 ## Verification
 
 ```powershell

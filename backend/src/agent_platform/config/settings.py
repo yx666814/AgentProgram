@@ -9,6 +9,12 @@ from typing import Literal, Self
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from agent_platform.interfaces.ipc.replay import (
+    DEFAULT_REPLAY_WINDOW_CAPACITY,
+    MAX_REPLAY_WINDOW_CAPACITY,
+    MIN_REPLAY_WINDOW_CAPACITY,
+)
+
 
 def default_data_root() -> Path:
     local_app_data = os.getenv("LOCALAPPDATA")
@@ -42,6 +48,11 @@ class Settings(BaseSettings):
     log_shutdown_drain_seconds: float = Field(default=1.0, ge=0.05, le=10.0)
     worker_heartbeat_timeout_seconds: float = 15.0
     worker_watchdog_interval_seconds: float = 1.0
+    worker_ipc_replay_window_capacity: int = Field(
+        default=DEFAULT_REPLAY_WINDOW_CAPACITY,
+        ge=MIN_REPLAY_WINDOW_CAPACITY,
+        le=MAX_REPLAY_WINDOW_CAPACITY,
+    )
 
     @field_validator("session_token")
     @classmethod

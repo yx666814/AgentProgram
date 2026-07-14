@@ -155,3 +155,13 @@ def test_settings_exposes_logging_durations(tmp_path: Path) -> None:
 
     assert settings.log_file_retention_age.total_seconds() == 7 * 24 * 60 * 60
     assert settings.log_shutdown_drain_timeout.total_seconds() == 0.5
+
+
+@pytest.mark.parametrize("capacity", [63, 65_537])
+def test_settings_rejects_invalid_ipc_replay_capacity(tmp_path: Path, capacity: int) -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            data_root=tmp_path,
+            session_token="local-secret",
+            worker_ipc_replay_window_capacity=capacity,
+        )

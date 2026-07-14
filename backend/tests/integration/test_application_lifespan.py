@@ -252,10 +252,18 @@ async def test_application_lifespan_initializes_resources_in_required_order(
         events.append("probe_database")
         await real_probe_database(database)
 
-    def create_worker_supervisor(*, heartbeat_timeout: timedelta) -> WorkerSupervisor:
+    def create_worker_supervisor(
+        *,
+        heartbeat_timeout: timedelta,
+        ipc_replay_window_capacity: int,
+    ) -> WorkerSupervisor:
         assert heartbeat_timeout.total_seconds() == settings.worker_heartbeat_timeout_seconds
+        assert ipc_replay_window_capacity == settings.worker_ipc_replay_window_capacity
         events.append("worker_supervisor")
-        return WorkerSupervisor(heartbeat_timeout=heartbeat_timeout)
+        return WorkerSupervisor(
+            heartbeat_timeout=heartbeat_timeout,
+            ipc_replay_window_capacity=ipc_replay_window_capacity,
+        )
 
     monkeypatch.setattr(Settings, "ensure_directories", ensure_directories)
     monkeypatch.setattr(lifespan_module, "register_known_secret", register_known_secret)

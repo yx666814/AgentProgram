@@ -15,6 +15,12 @@ from agent_platform.infrastructure.async_cleanup import await_cancellation_resis
 from agent_platform.infrastructure.workers.stderr import WorkerStderrDecoder, WorkerStderrReporter
 from agent_platform.interfaces.ipc.framing import FrameDecoder, FramingError, encode_frame
 from agent_platform.interfaces.ipc.messages import IpcMessage, MessageType
+from agent_platform.interfaces.ipc.replay import (
+    DEFAULT_REPLAY_WINDOW_CAPACITY,
+    IpcReplayError,
+    ReplayWindow,
+    validate_replay_window_capacity,
+)
 
 from .windows_job import WindowsJob, WindowsStartGate
 
@@ -116,8 +122,7 @@ class WorkerHandle:
     pending: dict[str, asyncio.Future[IpcMessage]]
     process_group_id: int | None = None
     job: WindowsJob | None = field(default=None, repr=False)
-    last_inbound_sequence: int = 0
-    seen_inbound_message_ids: set[str] = field(default_factory=set, repr=False)
+    inbound_replay: ReplayWindow = field(default_factory=ReplayWindow, repr=False)
     reader_task: asyncio.Task[None] = field(init=False, repr=False)
     _stderr_task: asyncio.Task[None] = field(init=False, repr=False)
     _write_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
@@ -135,11 +140,15 @@ class WorkerSupervisor:
         *,
         response_timeout_seconds: float = 5.0,
         shutdown_timeout_seconds: float = 3.0,
+        ipc_replay_window_capacity: int = DEFAULT_REPLAY_WINDOW_CAPACITY,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._heartbeat_timeout = heartbeat_timeout
         self._response_timeout_seconds = response_timeout_seconds
         self._shutdown_timeout_seconds = min(shutdown_timeout_seconds, 3.0)
+        self._ipc_replay_window_capacity = validate_replay_window_capacity(
+            ipc_replay_window_capacity
+        )
         self._clock = clock or (lambda: datetime.now(UTC))
         self._workers: dict[str, WorkerHandle] = {}
         self._projects: dict[str, WorkerHandle] = {}
@@ -166,12 +175,17 @@ class WorkerSupervisor:
             stderr_task: asyncio.Task[None] | None = None
             try:
                 worker_id = new_id("worker")
-                target_arguments = (
+                target_arguments: tuple[str, ...] = (
                     "--project-id",
                     project_id,
                     "--worker-id",
                     worker_id,
                 )
+                if worker_module == "agent_platform.workers.main":
+                    target_arguments += (
+                        "--ipc-replay-window-capacity",
+                        str(self._ipc_replay_window_capacity),
+                    )
                 process_arguments: tuple[str, ...]
                 if os.name == "nt":
                     job = WindowsJob.create()
@@ -224,6 +238,7 @@ class WorkerSupervisor:
                     pending={},
                     process_group_id=process_group_id,
                     job=job,
+                    inbound_replay=ReplayWindow(self._ipc_replay_window_capacity),
                 )
                 reader_task = asyncio.create_task(self._read_stdout(handle))
                 handle.reader_task = reader_task
@@ -708,18 +723,17 @@ class WorkerSupervisor:
 
     @staticmethod
     def _validate_inbound_message(handle: WorkerHandle, message: IpcMessage) -> None:
-        expected_sequence = handle.last_inbound_sequence + 1
-        if message.sequence != expected_sequence:
-            raise FramingError("worker message sequence mismatch")
-        if message.message_id in handle.seen_inbound_message_ids:
-            raise FramingError("worker message replayed")
         if message.project_id != handle.project_id:
             raise FramingError("worker message project mismatch")
         if message.type == "heartbeat":
             WorkerSupervisor._validate_heartbeat(handle, message)
-
-        handle.last_inbound_sequence = message.sequence
-        handle.seen_inbound_message_ids.add(message.message_id)
+        try:
+            handle.inbound_replay.accept(
+                sequence=message.sequence,
+                message_id=message.message_id,
+            )
+        except IpcReplayError:
+            raise FramingError("worker message replay validation failed") from None
 
     @staticmethod
     def _validate_heartbeat(handle: WorkerHandle, message: IpcMessage) -> None:
