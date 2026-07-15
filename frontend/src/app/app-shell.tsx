@@ -1,15 +1,22 @@
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 
+import { useBackend } from "../api/backend-context";
 import { Button } from "../components/button";
 import { useTheme } from "../theme/theme-provider";
 
 const stageLabels = ["Planner", "Designer", "Builder", "Reviewer", "Deployer"] as const;
 
-const pageTitles: Record<string, string> = {
-  "/projects": "项目",
-  "/diagnostics": "事件与诊断",
-  "/settings": "设置",
-};
+function pageTitle(pathname: string): string {
+  if (pathname.endsWith("/preflight")) {
+    return "项目预检";
+  }
+  if (/^\/projects\/[^/]+$/.test(pathname)) {
+    return "项目主页";
+  }
+  return { "/projects": "项目", "/diagnostics": "事件与诊断", "/settings": "设置" }[
+    pathname
+  ] ?? "星协";
+}
 
 function navigationClass({ isActive }: { isActive: boolean }): string {
   return isActive ? "nav-link nav-link-active" : "nav-link";
@@ -17,8 +24,9 @@ function navigationClass({ isActive }: { isActive: boolean }): string {
 
 export function AppShell() {
   const location = useLocation();
+  const { port } = useBackend();
   const { theme, toggleTheme } = useTheme();
-  const pageTitle = pageTitles[location.pathname] ?? "星协";
+  const title = pageTitle(location.pathname);
 
   return (
     <div className="app-window">
@@ -69,7 +77,7 @@ export function AppShell() {
           <header className="workspace-header">
             <div>
               <span className="workspace-kicker">星协</span>
-              <h2>{pageTitle}</h2>
+              <h2>{title}</h2>
             </div>
             <div className="workspace-actions">
               <NavLink className="header-link" to="/diagnostics">
@@ -87,9 +95,9 @@ export function AppShell() {
 
           <footer className="workspace-statusbar">
             <span className="status-dot" aria-hidden="true" />
-            <span>阶段 7A 前端母版</span>
+            <span>阶段 7B 正式前端</span>
             <span className="status-separator">·</span>
-            <span>后端桥接将在阶段 8 接入</span>
+            <span>{port === null ? "桌面桥未接入" : "桌面桥已接入"}</span>
           </footer>
         </main>
       </div>

@@ -216,7 +216,7 @@ a {
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  padding: 34px clamp(34px, 6vw, 92px);
+  padding: 28px clamp(28px, 4vw, 56px);
 }
 
 .foundation-page,
