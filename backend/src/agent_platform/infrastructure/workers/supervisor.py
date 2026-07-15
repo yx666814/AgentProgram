@@ -305,6 +305,15 @@ class WorkerSupervisor:
         stop_task = await self._ensure_stop_task(handle, graceful=True)
         await await_cancellation_resistant(stop_task)
 
+    async def stop_project(self, project_id: str) -> bool:
+        async with self._registry_lock:
+            handle = self._projects.get(project_id)
+        if handle is None:
+            return False
+        stop_task = await self._ensure_stop_task(handle, graceful=True)
+        await await_cancellation_resistant(stop_task)
+        return True
+
     async def _ensure_stop_task(
         self,
         handle: WorkerHandle,

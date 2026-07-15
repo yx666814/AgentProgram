@@ -320,6 +320,7 @@ class WorkflowRow(Base):
     schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
+    execution_mode: Mapped[str] = mapped_column(String(20), nullable=False, server_default="manual")
     current_stage: Mapped[str] = mapped_column(String(20), nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
@@ -623,3 +624,301 @@ class ConversationSummaryRow(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class CapabilityRequestRow(Base):
+    __tablename__ = "capability_requests"
+    __table_args__ = (
+        UniqueConstraint("task_id", "idempotency_key", name="uq_capability_requests_task_key"),
+        CheckConstraint("version > 0", name="ck_capability_requests_version_positive"),
+        Index(
+            "ix_capability_requests_workflow_status",
+            "workflow_id",
+            "status",
+            "requested_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(80), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    workflow_id: Mapped[str] = mapped_column(
+        String(80), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False
+    )
+    stage_run_id: Mapped[str] = mapped_column(
+        String(80), ForeignKey("stage_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    task_id: Mapped[str] = mapped_column(
+        String(80), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False
+    )
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    stage: Mapped[str] = mapped_column(String(20), nullable=False)
+    capability: Mapped[str] = mapped_column(String(120), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    target_paths: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    command: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    risk_level: Mapped[str] = mapped_column(String(20), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    requested_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    decided_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    decision_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ApprovalRow(Base):
+    __tablename__ = "approvals"
+    __table_args__ = (
+        UniqueConstraint("kind", "target_id", name="uq_approvals_kind_target"),
+        CheckConstraint("version > 0", name="ck_approvals_version_positive"),
+        Index("ix_approvals_workflow_status", "workflow_id", "status", "requested_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(80), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    workflow_id: Mapped[str] = mapped_column(
+        String(80), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False
+    )
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    kind: Mapped[str] = mapped_column(String(24), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    requested_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    decided_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ToolCallRow(Base):
+    __tablename__ = "tool_calls"
+    __table_args__ = (
+        UniqueConstraint("task_id", "idempotency_key", name="uq_tool_calls_task_key"),
+        Index("ix_tool_calls_workflow_status", "workflow_id", "status", "started_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(80), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    workflow_id: Mapped[str] = mapped_column(
+        String(80), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False
+    )
+    stage_run_id: Mapped[str] = mapped_column(
+        String(80), ForeignKey("stage_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    task_id: Mapped[str] = mapped_column(
+        String(80), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False
+    )
+    capability_request_id: Mapped[str | None] = mapped_column(
+        String(80), ForeignKey("capability_requests.id", ondelete="SET NULL"), nullable=True
+    )
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    tool_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    capability: Mapped[str] = mapped_column(String(120), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    arguments_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    result: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+
+class ArtifactRow(Base):
+    __tablename__ = "artifacts"
+    __table_args__ = (
+        UniqueConstraint("workflow_id", "stage", "name", name="uq_artifacts_workflow_stage_name"),
+        UniqueConstraint("workflow_id", "relative_path", name="uq_artifacts_workflow_path"),
+        Index("ix_artifacts_workflow_stage", "workflow_id", "stage"),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(80), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    workflow_id: Mapped[str] = mapped_column(
+        String(80), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False
+    )
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    stage: Mapped[str] = mapped_column(String(20), nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    relative_path: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class ArtifactVersionRow(Base):
+    __tablename__ = "artifact_versions"
+    __table_args__ = (
+        UniqueConstraint("artifact_id", "version", name="uq_artifact_versions_artifact_version"),
+        CheckConstraint("version > 0", name="ck_artifact_versions_version_positive"),
+        CheckConstraint("byte_size >= 0", name="ck_artifact_versions_size_nonnegative"),
+        Index("ix_artifact_versions_stage_status", "stage_run_id", "status", "version"),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    artifact_id: Mapped[str] = mapped_column(
+        String(80), ForeignKey("artifacts.id", ondelete="CASCADE"), nullable=False
+    )
+    stage_run_id: Mapped[str] = mapped_column(
+        String(80), ForeignKey("stage_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    supersedes_id: Mapped[str | None] = mapped_column(
+        String(80), ForeignKey("artifact_versions.id", ondelete="RESTRICT"), nullable=True
+    )
+    checkpoint_id: Mapped[str | None] = mapped_column(
+        String(80), ForeignKey("project_checkpoints.id", ondelete="RESTRICT"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    locked_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    invalidated_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    invalidation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class QualityGateRunRow(Base):
+    __tablename__ = "quality_gate_runs"
+    __table_args__ = (
+        CheckConstraint("version > 0", name="ck_quality_gate_runs_version_positive"),
+        Index("ix_quality_gate_runs_stage", "stage_run_id", "evaluated_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(80), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    workflow_id: Mapped[str] = mapped_column(
+        String(80), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False
+    )
+    stage_run_id: Mapped[str] = mapped_column(
+        String(80), ForeignKey("stage_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    resolution: Mapped[str] = mapped_column(String(24), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    evaluated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+
+class QualityGateIssueRow(Base):
+    __tablename__ = "quality_gate_issues"
+    __table_args__ = (
+        UniqueConstraint("gate_run_id", "code", name="uq_quality_gate_issues_gate_code"),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    gate_run_id: Mapped[str] = mapped_column(
+        String(80), ForeignKey("quality_gate_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    code: Mapped[str] = mapped_column(String(120), nullable=False)
+    severity: Mapped[str] = mapped_column(String(20), nullable=False)
+    message: Mapped[str] = mapped_column(String(500), nullable=False)
+    details: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+
+
+class QualityGateArtifactRow(Base):
+    __tablename__ = "quality_gate_artifacts"
+
+    gate_run_id: Mapped[str] = mapped_column(
+        String(80), ForeignKey("quality_gate_runs.id", ondelete="CASCADE"), primary_key=True
+    )
+    artifact_version_id: Mapped[str] = mapped_column(
+        String(80), ForeignKey("artifact_versions.id", ondelete="RESTRICT"), primary_key=True
+    )
+
+
+class HandoffPacketRow(Base):
+    __tablename__ = "handoff_packets"
+    __table_args__ = (
+        UniqueConstraint("gate_run_id", name="uq_handoff_packets_gate"),
+        Index("ix_handoff_packets_workflow_status", "workflow_id", "status", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(80), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    workflow_id: Mapped[str] = mapped_column(
+        String(80), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False
+    )
+    from_stage_run_id: Mapped[str] = mapped_column(
+        String(80), ForeignKey("stage_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    from_stage: Mapped[str] = mapped_column(String(20), nullable=False)
+    to_stage: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    gate_run_id: Mapped[str] = mapped_column(
+        String(80), ForeignKey("quality_gate_runs.id", ondelete="RESTRICT"), nullable=False
+    )
+    checkpoint_id: Mapped[str] = mapped_column(
+        String(80), ForeignKey("project_checkpoints.id", ondelete="RESTRICT"), nullable=False
+    )
+    artifact_version_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    invalidated_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    invalidation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ChangeRequestRow(Base):
+    __tablename__ = "change_requests"
+    __table_args__ = (
+        Index("ix_change_requests_workflow_status", "workflow_id", "status", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(80), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    workflow_id: Mapped[str] = mapped_column(
+        String(80), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False
+    )
+    source_stage_run_id: Mapped[str] = mapped_column(
+        String(80), ForeignKey("stage_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    target_stage: Mapped[str] = mapped_column(String(20), nullable=False)
+    gate_run_id: Mapped[str | None] = mapped_column(
+        String(80), ForeignKey("quality_gate_runs.id", ondelete="SET NULL"), nullable=True
+    )
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    input_artifact_version_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+
+class RecoveryRecordRow(Base):
+    __tablename__ = "recovery_records"
+    __table_args__ = (
+        CheckConstraint("interrupted_tasks >= 0", name="ck_recovery_tasks_nonnegative"),
+        CheckConstraint("interrupted_agent_runs >= 0", name="ck_recovery_agent_runs_nonnegative"),
+        CheckConstraint("interrupted_tool_calls >= 0", name="ck_recovery_tool_calls_nonnegative"),
+        Index("ix_recovery_records_status", "status", "detected_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(80), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    workflow_id: Mapped[str] = mapped_column(
+        String(80), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False
+    )
+    stage_run_id: Mapped[str | None] = mapped_column(
+        String(80), ForeignKey("stage_runs.id", ondelete="SET NULL"), nullable=True
+    )
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    interrupted_tasks: Mapped[int] = mapped_column(Integer, nullable=False)
+    interrupted_agent_runs: Mapped[int] = mapped_column(Integer, nullable=False)
+    interrupted_tool_calls: Mapped[int] = mapped_column(Integer, nullable=False)
+    detected_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)

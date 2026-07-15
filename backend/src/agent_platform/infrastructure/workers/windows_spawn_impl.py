@@ -173,6 +173,8 @@ class _AtomicJobSubprocessTransport(_WindowsSubprocessTransportBase):  # type: i
 async def create_windows_job_subprocess_exec(
     job: WindowsJob,
     *args: str,
+    cwd: str | os.PathLike[str] | None = None,
+    env: Mapping[str, str] | None = None,
 ) -> asyncio.subprocess.Process:
     """Spawn a piped process atomically inside ``job`` and expose asyncio semantics."""
 
@@ -198,6 +200,8 @@ async def create_windows_job_subprocess_exec(
                 0,
                 waiter=waiter,
                 job_handle=duplicated_job_handle.value,
+                cwd=cwd,
+                env=env,
             )
         finally:
             duplicated_job_handle.close()

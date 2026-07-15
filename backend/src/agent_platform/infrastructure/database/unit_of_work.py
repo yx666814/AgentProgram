@@ -4,6 +4,9 @@ from types import TracebackType
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agent_platform.infrastructure.async_cleanup import await_cancellation_resistant
+from agent_platform.infrastructure.database.governance_repository import (
+    SqlAlchemyGovernanceRepository,
+)
 from agent_platform.infrastructure.database.model_runtime_repository import (
     SqlAlchemyModelRuntimeRepository,
 )
@@ -40,6 +43,7 @@ class SqlAlchemyUnitOfWork:
         self.projects: SqlAlchemyProjectRepository
         self.workflows: SqlAlchemyWorkflowRepository
         self.model_runtime: SqlAlchemyModelRuntimeRepository
+        self.governance: SqlAlchemyGovernanceRepository
 
     async def __aenter__(self) -> "SqlAlchemyUnitOfWork":
         if self._entered:
@@ -55,6 +59,7 @@ class SqlAlchemyUnitOfWork:
             self.projects = SqlAlchemyProjectRepository(self.session)
             self.workflows = SqlAlchemyWorkflowRepository(self.session)
             self.model_runtime = SqlAlchemyModelRuntimeRepository(self.session)
+            self.governance = SqlAlchemyGovernanceRepository(self.session)
         except BaseException:
             if self._write_lock_acquired and self._write_lock is not None:
                 self._write_lock.release()

@@ -43,7 +43,7 @@ def test_model_runtime_upgrade_and_downgrade(tmp_path: Path) -> None:
     data_root = tmp_path / "data-root"
     database_path = data_root / "data" / "agent.db"
     _alembic(data_root, "upgrade", "0007_workflows")
-    _alembic(data_root, "upgrade", "head")
+    _alembic(data_root, "upgrade", MODEL_RUNTIME_DATABASE_REVISION)
 
     assert MODEL_TABLES.issubset(_tables(database_path))
     with sqlite3.connect(database_path) as connection:

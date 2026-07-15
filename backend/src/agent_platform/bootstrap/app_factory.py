@@ -4,6 +4,7 @@ from fastapi import Depends, FastAPI
 from starlette.types import ASGIApp
 
 from agent_platform import __version__
+from agent_platform.application.system_control import ShutdownCoordinator
 from agent_platform.bootstrap.lifespan import build_lifespan
 from agent_platform.config.settings import Settings
 from agent_platform.interfaces.api.auth import require_session
@@ -13,6 +14,7 @@ from agent_platform.interfaces.api.routes.events import ticket_router, websocket
 from agent_platform.interfaces.api.routes.health import router as health_router
 from agent_platform.interfaces.api.routes.model_runtime import router as model_runtime_router
 from agent_platform.interfaces.api.routes.projects import router as projects_router
+from agent_platform.interfaces.api.routes.stage5 import router as stage5_router
 from agent_platform.interfaces.api.routes.workflows import router as workflows_router
 
 
@@ -39,6 +41,7 @@ def create_app(settings: Settings) -> FastAPI:
         lifespan=build_lifespan(settings),
     )
     app.state.settings = settings
+    app.state.shutdown_coordinator = ShutdownCoordinator()
     app.add_middleware(UnexpectedErrorMiddleware)
     app.include_router(
         health_router,
@@ -62,6 +65,11 @@ def create_app(settings: Settings) -> FastAPI:
     )
     app.include_router(
         model_runtime_router,
+        prefix="/api/v1",
+        dependencies=[Depends(require_session)],
+    )
+    app.include_router(
+        stage5_router,
         prefix="/api/v1",
         dependencies=[Depends(require_session)],
     )

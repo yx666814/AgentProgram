@@ -13,6 +13,7 @@ from agent_platform.application.events.streaming import (
     EventStreamService,
     EventTicketStore,
 )
+from agent_platform.application.governance import GovernanceApplicationService
 from agent_platform.application.model_runtime import (
     AgentRunRegistry,
     AgentRuntimeService,
@@ -22,6 +23,7 @@ from agent_platform.application.model_runtime import (
     RollingSummaryBuilder,
 )
 from agent_platform.application.projects.service import ProjectApplicationService
+from agent_platform.application.tooling import ToolApplicationService
 from agent_platform.application.workflows import WorkflowApplicationService
 from agent_platform.config.settings import Settings
 from agent_platform.domain.shared.ids import new_id
@@ -34,6 +36,7 @@ from agent_platform.infrastructure.database.integrity import (
 from agent_platform.infrastructure.database.local_audit import LocalAuditPublisher
 from agent_platform.infrastructure.database.maintenance import DatabaseMaintenance
 from agent_platform.infrastructure.database.outbox_store import SqlAlchemyOutboxStore
+from agent_platform.infrastructure.database.schema import CURRENT_DATABASE_REVISION
 from agent_platform.infrastructure.database.session import Database, create_database
 from agent_platform.infrastructure.events import WebSocketEventPublisher
 from agent_platform.infrastructure.logging.configure import LoggingRuntime, configure_logging
@@ -45,6 +48,13 @@ from agent_platform.infrastructure.model_runtime import (
 )
 from agent_platform.infrastructure.redaction import SecretRegistration, register_known_secret
 from agent_platform.infrastructure.resources.role_cards import PackageRoleCardLoader
+from agent_platform.infrastructure.tooling import (
+    AtomicFileTools,
+    ControlledProcessRunner,
+    PathGuard,
+    ToolCatalog,
+    ToolProcessRegistry,
+)
 from agent_platform.infrastructure.workers.supervisor import WorkerSupervisor
 
 _CLEANUP_FAILURE_NOTE = "Additional cleanup failure occurred."
@@ -53,6 +63,16 @@ _CLEANUP_FAILURE_NOTE = "Additional cleanup failure occurred."
 async def _probe_database(database: Database) -> None:
     async with database.engine.connect() as connection:
         await connection.execute(text("SELECT 1"))
+
+
+async def _database_schema_is_current(database: Database) -> bool:
+    try:
+        async with database.engine.connect() as connection:
+            result = await connection.execute(text("SELECT version_num FROM alembic_version"))
+            revision = str(result.scalar_one())
+        return revision == CURRENT_DATABASE_REVISION
+    except Exception:
+        return False
 
 
 def _add_cleanup_failure_note(primary_error: BaseException) -> None:
@@ -144,6 +164,7 @@ async def _stop_outbox_dispatcher(
 async def _shutdown_resources(
     worker_watchdog_task: asyncio.Task[None] | None,
     worker_supervisor: WorkerSupervisor | None,
+    tool_process_registry: ToolProcessRegistry | None,
     database_maintenance_task: asyncio.Task[None] | None,
     database_maintenance: DatabaseMaintenance | None,
     outbox_dispatcher: OutboxDispatcher | None,
@@ -166,6 +187,11 @@ async def _shutdown_resources(
     if worker_watchdog_task is not None:
         try:
             await _cancel_worker_watchdog(worker_watchdog_task)
+        except BaseException as error:
+            remember_error(error)
+    if tool_process_registry is not None:
+        try:
+            await tool_process_registry.cancel_all()
         except BaseException as error:
             remember_error(error)
     if worker_supervisor is not None:
@@ -234,6 +260,9 @@ def _clear_resource_state(app: FastAPI) -> None:
     for attribute in (
         "worker_watchdog_task",
         "worker_supervisor",
+        "tool_process_registry",
+        "tool_service",
+        "governance_service",
         "database",
         "project_service",
         "workflow_service",
@@ -265,6 +294,7 @@ def build_lifespan(
         logging_runtime: LoggingRuntime | None = None
         database: Database | None = None
         worker_supervisor: WorkerSupervisor | None = None
+        tool_process_registry: ToolProcessRegistry | None = None
         worker_watchdog_task: asyncio.Task[None] | None = None
         database_maintenance: DatabaseMaintenance | None = None
         database_maintenance_task: asyncio.Task[None] | None = None
@@ -329,6 +359,14 @@ def build_lifespan(
             )
             secret_store = UnavailableSecretStore()
             agent_run_registry = AgentRunRegistry()
+            tool_catalog = ToolCatalog()
+            path_guard = PathGuard()
+            file_tools = AtomicFileTools(max_file_bytes=settings.tool_file_max_bytes)
+            tool_process_registry = ToolProcessRegistry()
+            process_runner = ControlledProcessRunner(
+                tool_process_registry,
+                max_output_bytes=settings.tool_output_max_bytes,
+            )
             model_output_store = ModelOutputStore(
                 settings.model_output_root,
                 max_output_bytes=settings.model_output_max_bytes,
@@ -352,6 +390,25 @@ def build_lifespan(
                 ),
                 agent_run_registry,
             )
+            tool_service = ToolApplicationService(
+                database,
+                settings,
+                tool_catalog,
+                path_guard,
+                file_tools,
+                process_runner,
+                tool_process_registry,
+            )
+            governance_service = GovernanceApplicationService(
+                database,
+                settings,
+                file_tools,
+                agent_run_registry,
+                tool_process_registry,
+                worker_supervisor,
+            )
+            if await _database_schema_is_current(database):
+                await governance_service.recover_incomplete_workflows()
             if hasattr(database, "sessions"):
                 database_write_lock: asyncio.Lock | None = getattr(
                     database,
@@ -390,6 +447,9 @@ def build_lifespan(
             app.state.model_configuration_service = model_configuration_service
             app.state.agent_runtime_service = agent_runtime_service
             app.state.agent_run_registry = agent_run_registry
+            app.state.tool_process_registry = tool_process_registry
+            app.state.tool_service = tool_service
+            app.state.governance_service = governance_service
             app.state.secret_store = secret_store
             app.state.worker_supervisor = worker_supervisor
             app.state.worker_watchdog_task = worker_watchdog_task
@@ -406,6 +466,7 @@ def build_lifespan(
                     _shutdown_resources(
                         worker_watchdog_task,
                         worker_supervisor,
+                        tool_process_registry,
                         database_maintenance_task,
                         database_maintenance,
                         outbox_dispatcher,
@@ -430,6 +491,7 @@ def build_lifespan(
                 cleanup = _shutdown_resources(
                     worker_watchdog_task,
                     worker_supervisor,
+                    tool_process_registry,
                     database_maintenance_task,
                     database_maintenance,
                     outbox_dispatcher,

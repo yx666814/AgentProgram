@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 from agent_platform.domain.contracts import STAGE_ORDER, Stage, StageRunState
 from agent_platform.domain.events import ActorRef, ActorType, EventEnvelope, EventSource
+from agent_platform.domain.governance import ExecutionMode
 from agent_platform.domain.projects import ProjectStatus
 from agent_platform.domain.shared.errors import DomainError, ErrorCategory
 from agent_platform.domain.shared.ids import new_id
@@ -63,6 +64,7 @@ class WorkflowApplicationService:
             project_id=project_id,
             title=title.strip(),
             status=WorkflowStatus.CREATED,
+            execution_mode=ExecutionMode.MANUAL,
             current_stage=Stage.PLANNER,
             version=1,
             created_at=now,
@@ -304,6 +306,19 @@ class WorkflowApplicationService:
                 tuple(new_rooms),
                 expected_workflow_version=expected_workflow_version,
                 updated_at=now,
+            )
+            affected_stages = STAGE_ORDER[STAGE_ORDER.index(stage) :]
+            await uow.governance.invalidate_artifacts_from_stage(
+                workflow_id,
+                affected_stages,
+                invalidated_at=now,
+                reason=f"stage_reopened:{stage.value}",
+            )
+            await uow.governance.invalidate_handoffs_from_stage(
+                workflow_id,
+                affected_stages,
+                invalidated_at=now,
+                reason=f"stage_reopened:{stage.value}",
             )
             await _append_event(
                 uow,
@@ -551,6 +566,12 @@ class WorkflowApplicationService:
             workflow = await uow.workflows.get(task.workflow_id)
             if workflow is None:
                 raise RuntimeError("task workflow is missing")
+            if task.status in {
+                TaskStatus.SUCCEEDED,
+                TaskStatus.FAILED,
+                TaskStatus.CANCELLED,
+            }:
+                await uow.governance.expire_capabilities_for_task(task.id, decided_at=now)
             await _append_event(
                 uow,
                 event_type=event_type,

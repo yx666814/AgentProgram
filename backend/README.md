@@ -94,6 +94,27 @@ at `POST /api/v1/agent-runs/{run_id}/stream`. Optional controls are:
 - `AGENT_PLATFORM_MODEL_HTTP_TIMEOUT_SECONDS`
 - `AGENT_PLATFORM_PROJECT_INSTRUCTION_MAX_BYTES`
 
+Stage 5 completes the backend V1 execution and governance chain. A versioned Tool Catalog and
+PathGuard enforce StageContract capabilities, approved task-scoped escalation, project-relative
+paths, excluded paths, artifact ownership, and permanent prohibitions. File writes use verified
+atomic replacement with optimistic hashes. Registered project commands run without a shell,
+inside a kill-on-close Windows Job Object, with bounded output, timeout, cancellation, and
+process-tree cleanup. Tool audit rows persist only hashes, sizes, exit state, and sanitized error
+codes; raw file contents and command output are returned only to the active caller.
+
+ArtifactVersion, deterministic Quality Gate, Approval, Checkpoint, HandoffPacket, and
+ChangeRequest now form one backend-controlled completion chain. MANUAL mode waits for a user
+decision; AUTONOMOUS PASS completes the handoff, while AUTONOMOUS WARNING enters
+`warning_blocked` and creates a rewrite request. Pause, resume, stop, abandon, restart recovery,
+and task-scoped capability expiry are exposed through authenticated REST commands. Desktop
+control v1 is available at `GET /api/v1/system/control` and `POST /api/v1/system/shutdown`.
+Product-internal Git tools remain intentionally unimplemented.
+
+Optional Stage 5 limits are:
+
+- `AGENT_PLATFORM_TOOL_FILE_MAX_BYTES`
+- `AGENT_PLATFORM_TOOL_OUTPUT_MAX_BYTES`
+
 ## Verification
 
 ```powershell
