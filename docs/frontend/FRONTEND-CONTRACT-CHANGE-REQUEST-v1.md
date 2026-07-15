@@ -6,7 +6,7 @@
 >
 > 后端基线：`origin/master` at `057e2612489c99a3b93cc103d911e2530362dc38`
 >
-> 适用范围：`FRONTEND-IMPLEMENTATION-EXECUTION-v1.md` Task 1 Steps 2–6
+> 适用范围：`FRONTEND-IMPLEMENTATION-EXECUTION-v1.md` Task 1 Steps 2–6、Task 2 DesktopPort 后端类型
 
 ## 1. 变更原因
 
@@ -52,6 +52,14 @@ Task 1 改为由前端拥有的只读导出器从冻结后端代码生成三份�
 - Workflow 12 状态、StageRun 16 状态、五阶段 StageContract 全部来自后端 Schema；
 - Tool Catalog、Stage capability、错误代码和实际事件类型没有手写第二份运行时定义；
 - 重新导出后存在 diff 时，前端构建失败并要求显式审查。
+
+Task 2 的 `DesktopPort` 同步采用实际冻结类型：
+
+- `BackendOperationId` 直接使用 OpenAPI 生成的 `keyof operations`。
+- `PersistedEvent` 直接使用 OpenAPI 生成的 `EventEnvelope`，游标字段为实际的数字
+  `event_id`，不创建不存在的 `sequence` 字段。
+- command 返回真实 HTTP payload 和状态码，不伪造统一 `{ accepted: true }`；业务完成仍等待持久化事件。
+- Renderer 仍无法取得 Token、SecretStore、Node 文件系统、Shell 或原始 IPC。
 
 ## 4. 不变约束
 
