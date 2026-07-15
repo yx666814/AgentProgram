@@ -247,11 +247,13 @@ abandoned
 
 门禁：五张角色卡内容完成规则对照并通过加载、版本、Hash、权限和 Prompt 优先级契约测试；共享 Schema、迁移升级/回滚、Outbox 重试/幂等和 Worker Watchdog 测试通过。完成代码化并确认无信息缺失后，删除 `docs/roles` 原文。
 
-### 阶段 2：后端项目、工作区与检查点
+### 阶段 2：后端项目、工作区与检查点（已完成）
 
 交付：Project/Workspace、Managed/Direct、ProjectManifest、`.agent/` 元数据、路径边界、Preflight、内容寻址快照、恢复、外部变化和 FileConflict。
 
 门禁：新项目、已有项目、无测试项目、非法路径、符号链接、原子写、Hash 校验、并发写入和用户数据保护测试。
+
+验证记录：实现和门禁结果见 `docs/backend/BACKEND-STAGE2-TRACEABILITY-v1.md`；Stage 2 完成后进入阶段 3，前端阶段 6 仍按独立设计流程推进。
 
 ### 阶段 3：后端工作流、聊天室与实时事件
 

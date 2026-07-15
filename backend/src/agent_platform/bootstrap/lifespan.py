@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from sqlalchemy import text
 
 from agent_platform.application.events.outbox_dispatcher import OutboxDispatcher
+from agent_platform.application.projects.service import ProjectApplicationService
 from agent_platform.config.settings import Settings
 from agent_platform.domain.shared.ids import new_id
 from agent_platform.infrastructure.async_cleanup import await_cancellation_resistant
@@ -212,6 +213,7 @@ def _clear_resource_state(app: FastAPI) -> None:
         "worker_watchdog_task",
         "worker_supervisor",
         "database",
+        "project_service",
         "logging_runtime",
         "database_maintenance",
         "database_maintenance_task",
@@ -283,6 +285,11 @@ def build_lifespan(
             )
             database_maintenance_task = asyncio.create_task(database_maintenance.run_forever())
             if hasattr(database, "sessions"):
+                database_write_lock: asyncio.Lock | None = getattr(
+                    database,
+                    "write_lock",
+                    None,
+                )
                 outbox_store = SqlAlchemyOutboxStore(
                     database.sessions,
                     lease_owner=new_id("dispatcher"),
@@ -291,10 +298,11 @@ def build_lifespan(
                     backoff_base_seconds=settings.outbox_backoff_base_seconds,
                     backoff_max_seconds=settings.outbox_backoff_max_seconds,
                     recovery_batch_size=settings.outbox_recovery_batch_size,
+                    write_lock=database_write_lock,
                 )
                 outbox_dispatcher = OutboxDispatcher(
                     store=outbox_store,
-                    publishers=(LocalAuditPublisher(database.sessions),),
+                    publishers=(LocalAuditPublisher(database.sessions, database_write_lock),),
                     poll_interval_seconds=settings.outbox_poll_interval_seconds,
                     publish_timeout_seconds=settings.outbox_publish_timeout_seconds,
                     cleanup_interval_seconds=settings.outbox_cleanup_interval_seconds,
@@ -303,6 +311,7 @@ def build_lifespan(
                 )
                 outbox_dispatcher_task = asyncio.create_task(outbox_dispatcher.run())
             app.state.database = database
+            app.state.project_service = ProjectApplicationService(database, settings)
             app.state.worker_supervisor = worker_supervisor
             app.state.worker_watchdog_task = worker_watchdog_task
             app.state.logging_runtime = logging_runtime

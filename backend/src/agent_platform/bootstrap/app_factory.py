@@ -10,6 +10,7 @@ from agent_platform.interfaces.api.auth import require_session
 from agent_platform.interfaces.api.errors import register_error_handlers
 from agent_platform.interfaces.api.middleware import UnexpectedErrorMiddleware
 from agent_platform.interfaces.api.routes.health import router as health_router
+from agent_platform.interfaces.api.routes.projects import router as projects_router
 
 
 class AgentPlatformFastAPI(FastAPI):
@@ -38,6 +39,11 @@ def create_app(settings: Settings) -> FastAPI:
     app.add_middleware(UnexpectedErrorMiddleware)
     app.include_router(
         health_router,
+        prefix="/api/v1",
+        dependencies=[Depends(require_session)],
+    )
+    app.include_router(
+        projects_router,
         prefix="/api/v1",
         dependencies=[Depends(require_session)],
     )

@@ -1,6 +1,6 @@
 # Backend Stage 2 Implementation
 
-> Status: implementation in progress. This is the single Stage 2 execution baseline.
+> Status: completed and verified. This is the single Stage 2 execution baseline.
 
 ## Goal
 
@@ -25,3 +25,9 @@ Implement project/workspace ownership, project-relative manifests, preflight, co
 - No checkpoint, restore, or correctness rule depends on Git.
 - Project state and its EventEnvelope/Outbox records commit in one SQLite transaction.
 - Filesystem publication uses temporary files, fsync, atomic replace, and post-publication hash verification.
+
+## Completion evidence
+
+- Traceability index: `docs/backend/BACKEND-STAGE2-TRACEABILITY-v1.md`.
+- Full Backend gate: Ruff format check passed; Ruff lint passed; Mypy passed for 95 source files; `688 passed, 12 skipped`.
+- API closure and restart closure are covered by the authenticated project contract tests and `test_stage2_runtime_closure.py`.

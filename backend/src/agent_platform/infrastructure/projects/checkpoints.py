@@ -29,7 +29,7 @@ from agent_platform.infrastructure.projects.paths import (
 
 _WINDOWS_REPARSE_POINT = 0x400
 _SAFE_ID = re.compile(r"[a-z][a-z0-9]*(?:_[a-z0-9]+)+\Z")
-_CHECKPOINT_LOCK = threading.Lock()
+_CHECKPOINT_LOCK = threading.RLock()
 
 
 class CheckpointError(DomainError):
@@ -152,11 +152,27 @@ class CheckpointStore:
             manifest,
             reason=CheckpointReason.PRE_RESTORE,
         )
+        return self.restore_prepared(workspace_root, checkpoint, protection)
+
+    def restore_prepared(
+        self,
+        workspace_root: Path,
+        checkpoint: ProjectCheckpoint,
+        protection: ProjectCheckpoint,
+    ) -> CheckpointRestoreResult:
+        if checkpoint.project_id != protection.project_id:
+            raise CheckpointError(
+                "checkpoint.project_mismatch",
+                "Protection checkpoint belongs to another project",
+                category=ErrorCategory.INVALID_INPUT,
+            )
         with _CHECKPOINT_LOCK:
             try:
                 snapshot_root = self._ensure_snapshot_layout()
                 self._verify(snapshot_root, checkpoint)
+                self._verify(snapshot_root, protection)
                 root, _ = validate_direct_workspace_root(workspace_root)
+                self._require_workspace_matches_protection(root, checkpoint, protection)
                 for checkpoint_file in checkpoint.files:
                     self._restore_file(snapshot_root, root, checkpoint_file)
             except BaseException as error:
@@ -174,6 +190,57 @@ class CheckpointStore:
             protection_checkpoint_id=protection.id,
             restored_file_count=len(checkpoint.files),
         )
+
+    def materialize_empty_workspace(
+        self,
+        workspace_root: Path,
+        checkpoint: ProjectCheckpoint,
+    ) -> None:
+        with _CHECKPOINT_LOCK:
+            snapshot_root = self._ensure_snapshot_layout()
+            self._verify(snapshot_root, checkpoint)
+            root, _ = validate_direct_workspace_root(workspace_root)
+            with os.scandir(root) as entries:
+                if next(entries, None) is not None:
+                    raise CheckpointError(
+                        "checkpoint.workspace_not_empty",
+                        "Managed workspace is not empty",
+                    )
+            for checkpoint_file in checkpoint.files:
+                self._restore_file(snapshot_root, root, checkpoint_file)
+
+    def restore_file(
+        self,
+        workspace_root: Path,
+        checkpoint_file: CheckpointFile,
+    ) -> None:
+        with _CHECKPOINT_LOCK:
+            snapshot_root = self._ensure_snapshot_layout()
+            root, _ = validate_direct_workspace_root(workspace_root)
+            self._restore_file(snapshot_root, root, checkpoint_file)
+
+    def delete_file(self, workspace_root: Path, relative_path: str) -> None:
+        with _CHECKPOINT_LOCK:
+            target = resolve_project_path(workspace_root, relative_path, must_exist=False)
+            if not (target.exists() or target.is_symlink()):
+                return
+            _require_regular_file(target, code="checkpoint.restore_path_unsafe")
+            try:
+                target.unlink()
+            except OSError:
+                raise CheckpointError(
+                    "checkpoint.delete_failed",
+                    "Conflict file could not be deleted",
+                    category=ErrorCategory.UNAVAILABLE,
+                ) from None
+
+    def file_hash(self, workspace_root: Path, relative_path: str) -> str | None:
+        with _CHECKPOINT_LOCK:
+            target = resolve_project_path(workspace_root, relative_path, must_exist=False)
+            if not (target.exists() or target.is_symlink()):
+                return None
+            metadata = _require_regular_file(target, code="checkpoint.restore_path_unsafe")
+            return _hash_regular_file(target, metadata.st_size)
 
     def _ensure_snapshot_layout(self) -> Path:
         root = _create_or_validate_directory(self._snapshot_root, parents=True)
@@ -414,6 +481,22 @@ class CheckpointStore:
         finally:
             temporary.unlink(missing_ok=True)
 
+    def _require_workspace_matches_protection(
+        self,
+        workspace_root: Path,
+        target: ProjectCheckpoint,
+        protection: ProjectCheckpoint,
+    ) -> None:
+        protected = {file.relative_path: file.content_hash for file in protection.files}
+        for checkpoint_file in target.files:
+            current_hash = self.file_hash(workspace_root, checkpoint_file.relative_path)
+            if current_hash != protected.get(checkpoint_file.relative_path):
+                raise CheckpointError(
+                    "checkpoint.workspace_changed",
+                    "Workspace changed after restore confirmation",
+                    details={"relative_path": checkpoint_file.relative_path},
+                )
+
     def _blob_path(self, snapshot_root: Path, content_hash: str) -> Path:
         if re.fullmatch(r"[0-9a-f]{64}", content_hash) is None:
             raise CheckpointError(
@@ -505,15 +588,37 @@ def _verify_file(path: Path, content_hash: str, byte_size: int, *, code: str) ->
     metadata = _require_regular_file(path, code=code)
     if metadata.st_size != byte_size:
         raise CheckpointError(code, "Checkpoint file size verification failed")
+    if _hash_regular_file(path, byte_size) != content_hash:
+        raise CheckpointError(code, "Checkpoint file hash verification failed")
+
+
+def _hash_regular_file(path: Path, expected_size: int) -> str:
     digest = hashlib.sha256()
     try:
         with path.open("rb") as source:
+            opened = os.fstat(source.fileno())
+            if opened.st_size != expected_size:
+                raise CheckpointError(
+                    "checkpoint.workspace_changed",
+                    "Project file changed during verification",
+                )
             while chunk := source.read(1024 * 1024):
                 digest.update(chunk)
+            after = os.fstat(source.fileno())
+            if not _same_file_version(opened, after):
+                raise CheckpointError(
+                    "checkpoint.workspace_changed",
+                    "Project file changed during verification",
+                )
+    except CheckpointError:
+        raise
     except OSError:
-        raise CheckpointError(code, "Checkpoint file hash verification failed") from None
-    if digest.hexdigest() != content_hash:
-        raise CheckpointError(code, "Checkpoint file hash verification failed")
+        raise CheckpointError(
+            "checkpoint.file_unavailable",
+            "Project file could not be verified",
+            category=ErrorCategory.UNAVAILABLE,
+        ) from None
+    return digest.hexdigest()
 
 
 def _same_file_version(before: os.stat_result, after: os.stat_result) -> bool:

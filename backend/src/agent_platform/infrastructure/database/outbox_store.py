@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import Integer, delete, func, select, update
@@ -14,6 +15,7 @@ from agent_platform.domain.events.outbox import (
 from agent_platform.domain.shared.ids import new_id
 from agent_platform.infrastructure.database.models import OutboxDeliveryRow, OutboxEventRow
 from agent_platform.infrastructure.database.repositories import EventLogRepository
+from agent_platform.infrastructure.database.write_serialization import serialized_write
 from agent_platform.ports.event_publishing import ClaimedDelivery
 
 
@@ -28,6 +30,7 @@ class SqlAlchemyOutboxStore:
         backoff_base_seconds: float,
         backoff_max_seconds: float,
         recovery_batch_size: int,
+        write_lock: asyncio.Lock | None = None,
     ) -> None:
         self._sessions = session_factory
         self._lease_owner = lease_owner
@@ -36,6 +39,7 @@ class SqlAlchemyOutboxStore:
         self._backoff_base = backoff_base_seconds
         self._backoff_max = backoff_max_seconds
         self._recovery_batch_size = recovery_batch_size
+        self._write_lock = write_lock
 
     async def claim_next(self, now: datetime | None = None) -> ClaimedDelivery | None:
         claimed_at = now or datetime.now(UTC)
@@ -75,21 +79,22 @@ class SqlAlchemyOutboxStore:
                 OutboxDeliveryRow.attempt_count,
             )
         )
-        async with self._sessions.begin() as session:
-            row = (await session.execute(statement)).first()
-            if row is None:
-                return None
-            envelope = await EventLogRepository(session).get(int(row.event_log_id))
-            if envelope is None:
-                raise RuntimeError("claimed outbox event is missing")
-            return ClaimedDelivery(
-                delivery_id=str(row.id),
-                event_id=int(row.event_log_id),
-                consumer_name=str(row.consumer_name),
-                lease_token=lease_token,
-                attempt_count=int(row.attempt_count),
-                envelope=envelope,
-            )
+        async with serialized_write(self._write_lock):
+            async with self._sessions.begin() as session:
+                row = (await session.execute(statement)).first()
+                if row is None:
+                    return None
+                envelope = await EventLogRepository(session).get(int(row.event_log_id))
+                if envelope is None:
+                    raise RuntimeError("claimed outbox event is missing")
+                return ClaimedDelivery(
+                    delivery_id=str(row.id),
+                    event_id=int(row.event_log_id),
+                    consumer_name=str(row.consumer_name),
+                    lease_token=lease_token,
+                    attempt_count=int(row.attempt_count),
+                    envelope=envelope,
+                )
 
     async def record_failure(
         self,
@@ -117,20 +122,21 @@ class SqlAlchemyOutboxStore:
                 base_seconds=self._backoff_base,
                 maximum_seconds=self._backoff_max,
             )
-        async with self._sessions.begin() as session:
-            result = await session.execute(
-                update(OutboxDeliveryRow)
-                .where(
-                    OutboxDeliveryRow.id == claim.delivery_id,
-                    OutboxDeliveryRow.delivery_state == OutboxDeliveryState.LEASED.value,
-                    OutboxDeliveryRow.lease_token == claim.lease_token,
+        async with serialized_write(self._write_lock):
+            async with self._sessions.begin() as session:
+                result = await session.execute(
+                    update(OutboxDeliveryRow)
+                    .where(
+                        OutboxDeliveryRow.id == claim.delivery_id,
+                        OutboxDeliveryRow.delivery_state == OutboxDeliveryState.LEASED.value,
+                        OutboxDeliveryRow.lease_token == claim.lease_token,
+                    )
+                    .values(**values)
                 )
-                .values(**values)
-            )
-            if getattr(result, "rowcount", 0) != 1:
-                return False
-            await self._refresh_aggregate(session, claim.event_id, failed_at)
-            return True
+                if getattr(result, "rowcount", 0) != 1:
+                    return False
+                await self._refresh_aggregate(session, claim.event_id, failed_at)
+                return True
 
     async def recover_expired_leases(self, now: datetime | None = None) -> int:
         recovered_at = now or datetime.now(UTC)
@@ -168,21 +174,22 @@ class SqlAlchemyOutboxStore:
         return count
 
     async def cleanup_delivered(self, cutoff: datetime, limit: int) -> int:
-        async with self._sessions.begin() as session:
-            ids = (
-                await session.scalars(
-                    select(OutboxEventRow.id)
-                    .where(
-                        OutboxEventRow.delivery_state == OutboxAggregateState.DELIVERED.value,
-                        OutboxEventRow.delivered_at <= cutoff,
+        async with serialized_write(self._write_lock):
+            async with self._sessions.begin() as session:
+                ids = (
+                    await session.scalars(
+                        select(OutboxEventRow.id)
+                        .where(
+                            OutboxEventRow.delivery_state == OutboxAggregateState.DELIVERED.value,
+                            OutboxEventRow.delivered_at <= cutoff,
+                        )
+                        .limit(limit)
                     )
-                    .limit(limit)
-                )
-            ).all()
-            if not ids:
-                return 0
-            await session.execute(delete(OutboxEventRow).where(OutboxEventRow.id.in_(ids)))
-            return len(ids)
+                ).all()
+                if not ids:
+                    return 0
+                await session.execute(delete(OutboxEventRow).where(OutboxEventRow.id.in_(ids)))
+                return len(ids)
 
     @staticmethod
     async def _refresh_aggregate(

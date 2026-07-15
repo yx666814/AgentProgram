@@ -10,6 +10,7 @@ from agent_platform.domain.projects import (
     ProjectCheckpoint,
     ProjectPreflightResult,
     ProjectRegistration,
+    ProjectStatus,
 )
 
 
@@ -24,6 +25,15 @@ class ProjectRepository(Protocol):
         self,
         canonical_root_path: str,
     ) -> ProjectRegistration | None: ...
+
+    async def set_project_status(
+        self,
+        project_id: str,
+        status: ProjectStatus,
+        *,
+        expected_version: int,
+        updated_at: datetime,
+    ) -> Project: ...
 
     async def save_manifest(
         self,
@@ -74,6 +84,8 @@ class ProjectRepository(Protocol):
         self,
         project_id: str,
     ) -> tuple[FileConflict, ...]: ...
+
+    async def get_file_conflict(self, conflict_id: str) -> FileConflict | None: ...
 
     async def resolve_file_conflict(
         self,

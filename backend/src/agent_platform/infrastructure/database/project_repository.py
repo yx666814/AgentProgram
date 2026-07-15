@@ -131,6 +131,29 @@ class SqlAlchemyProjectRepository:
             return None
         return _registration_from_rows(*result)
 
+    async def set_project_status(
+        self,
+        project_id: str,
+        status: ProjectStatus,
+        *,
+        expected_version: int,
+        updated_at: datetime,
+    ) -> Project:
+        row = await self._session.get(ProjectRow, project_id)
+        if row is None:
+            raise DomainError(
+                code="project.not_found",
+                message="Project was not found",
+                category=ErrorCategory.NOT_FOUND,
+            )
+        if row.version != expected_version:
+            raise ProjectVersionConflictError(row.version)
+        row.status = status.value
+        row.version += 1
+        row.updated_at = updated_at
+        await self._session.flush()
+        return _project_from_row(row)
+
     async def save_manifest(
         self,
         persisted: PersistedProjectManifest,
@@ -382,6 +405,10 @@ class SqlAlchemyProjectRepository:
         )
         rows = (await self._session.scalars(statement)).all()
         return tuple(_file_conflict_from_row(row) for row in rows)
+
+    async def get_file_conflict(self, conflict_id: str) -> FileConflict | None:
+        row = await self._session.get(FileConflictRow, conflict_id)
+        return _file_conflict_from_row(row) if row is not None else None
 
     async def resolve_file_conflict(
         self,

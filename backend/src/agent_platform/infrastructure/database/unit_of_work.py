@@ -1,3 +1,4 @@
+import asyncio
 from types import TracebackType
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -15,9 +16,15 @@ class SqlAlchemyUnitOfWork:
         self,
         session_factory: async_sessionmaker[AsyncSession],
         delivery_targets: tuple[str, ...] = (LOCAL_AUDIT_CONSUMER,),
+        *,
+        write: bool = False,
+        write_lock: asyncio.Lock | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._delivery_targets = delivery_targets
+        self._write = write
+        self._write_lock = write_lock
+        self._write_lock_acquired = False
         self._entered = False
         self._active = False
         self._closed = False
@@ -31,9 +38,18 @@ class SqlAlchemyUnitOfWork:
             raise RuntimeError("unit of work instances cannot be re-entered")
 
         self._entered = True
-        self.session = self._session_factory(close_resets_only=False)
-        self.events = EventLogRepository(self.session, self._delivery_targets)
-        self.projects = SqlAlchemyProjectRepository(self.session)
+        if self._write and self._write_lock is not None:
+            await self._write_lock.acquire()
+            self._write_lock_acquired = True
+        try:
+            self.session = self._session_factory(close_resets_only=False)
+            self.events = EventLogRepository(self.session, self._delivery_targets)
+            self.projects = SqlAlchemyProjectRepository(self.session)
+        except BaseException:
+            if self._write_lock_acquired and self._write_lock is not None:
+                self._write_lock.release()
+                self._write_lock_acquired = False
+            raise
         self._active = True
         return self
 
@@ -68,4 +84,9 @@ class SqlAlchemyUnitOfWork:
                 await self.session.rollback()
                 self._committed = False
         finally:
-            await self.session.close()
+            try:
+                await self.session.close()
+            finally:
+                if self._write_lock_acquired and self._write_lock is not None:
+                    self._write_lock.release()
+                    self._write_lock_acquired = False
