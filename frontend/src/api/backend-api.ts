@@ -24,6 +24,17 @@ export type Workflow = components["schemas"]["Workflow"];
 export type WorkflowList = components["schemas"]["WorkflowListResponse"];
 export type WorkflowSnapshot = components["schemas"]["WorkflowSnapshot"];
 export type WorkflowAction = "pause" | "resume" | "stop" | "abandon";
+export type Stage = components["schemas"]["Stage"];
+export type StageRunState = components["schemas"]["StageRunState"];
+export type StageTransitionResult = components["schemas"]["StageTransitionResponse"];
+export type Message = components["schemas"]["Message"];
+export type MessageList = components["schemas"]["MessageListResponse"];
+export type MessageAppendResult = components["schemas"]["MessageAppendResponse"];
+export type Task = components["schemas"]["WorkflowTask"];
+export type TaskList = components["schemas"]["TaskListResponse"];
+export type ToolCallList = components["schemas"]["ToolCallList"];
+export type AgentRunList = components["schemas"]["AgentRunListResponse"];
+export type RoomModelAssignment = components["schemas"]["RoomModelAssignment"];
 
 export type CorrelationIdFactory = () => string;
 
@@ -199,6 +210,145 @@ export class BackendApi {
           parameters: { path: { workflow_id: workflowId, action } },
           payload: {
             expected_version: expectedVersion,
+            correlation_id: this.correlationIdFactory(),
+          },
+        },
+      )
+    ).payload;
+  }
+
+  async listMessages(roomId: string): Promise<MessageList> {
+    return (
+      await this.client.query<MessageList>("list_messages_api_v1_rooms__room_id__messages_get", {
+        parameters: { path: { room_id: roomId }, query: { after_sequence: 0, limit: 100 } },
+      })
+    ).payload;
+  }
+
+  async appendMessage(
+    roomId: string,
+    content: string,
+    expectedRoomVersion: number,
+    correctionOfId: string | null = null,
+  ): Promise<MessageAppendResult> {
+    return (
+      await this.client.command<MessageAppendResult>(
+        "append_message_api_v1_rooms__room_id__messages_post",
+        {
+          parameters: { path: { room_id: roomId } },
+          payload: {
+            content,
+            correction_of_id: correctionOfId,
+            expected_room_version: expectedRoomVersion,
+            correlation_id: this.correlationIdFactory(),
+          },
+        },
+      )
+    ).payload;
+  }
+
+  async listTasks(workflowId: string): Promise<TaskList> {
+    return (
+      await this.client.query<TaskList>("list_tasks_api_v1_workflows__workflow_id__tasks_get", {
+        parameters: { path: { workflow_id: workflowId }, query: {} },
+      })
+    ).payload;
+  }
+
+  async enqueueTask(roomId: string, title: string): Promise<Task> {
+    return (
+      await this.client.command<Task>("enqueue_task_api_v1_rooms__room_id__tasks_post", {
+        parameters: { path: { room_id: roomId } },
+        payload: { title, payload: {}, correlation_id: this.correlationIdFactory() },
+      })
+    ).payload;
+  }
+
+  async startTask(taskId: string, expectedVersion: number): Promise<Task> {
+    return (
+      await this.client.command<Task>("start_task_api_v1_tasks__task_id__start_post", {
+        parameters: { path: { task_id: taskId } },
+        payload: {
+          expected_version: expectedVersion,
+          correlation_id: this.correlationIdFactory(),
+        },
+      })
+    ).payload;
+  }
+
+  async cancelTask(taskId: string, expectedVersion: number): Promise<Task> {
+    return (
+      await this.client.command<Task>("cancel_task_api_v1_tasks__task_id__cancel_post", {
+        parameters: { path: { task_id: taskId } },
+        payload: {
+          expected_version: expectedVersion,
+          correlation_id: this.correlationIdFactory(),
+        },
+      })
+    ).payload;
+  }
+
+  async listToolCalls(workflowId: string): Promise<ToolCallList> {
+    return (
+      await this.client.query<ToolCallList>(
+        "list_tool_calls_api_v1_workflows__workflow_id__tool_calls_get",
+        { parameters: { path: { workflow_id: workflowId } } },
+      )
+    ).payload;
+  }
+
+  async listAgentRuns(roomId: string): Promise<AgentRunList> {
+    return (
+      await this.client.query<AgentRunList>("list_agent_runs_api_v1_rooms__room_id__agent_runs_get", {
+        parameters: { path: { room_id: roomId } },
+      })
+    ).payload;
+  }
+
+  async getRoomAssignment(roomId: string): Promise<RoomModelAssignment> {
+    return (
+      await this.client.query<RoomModelAssignment>(
+        "get_room_assignment_api_v1_rooms__room_id__model_assignment_get",
+        { parameters: { path: { room_id: roomId } } },
+      )
+    ).payload;
+  }
+
+  async transitionStage(
+    workflowId: string,
+    stage: Stage,
+    targetState: StageRunState,
+    expectedWorkflowVersion: number,
+    expectedStageVersion: number,
+  ): Promise<StageTransitionResult> {
+    return (
+      await this.client.command<StageTransitionResult>(
+        "transition_stage_api_v1_workflows__workflow_id__stages__stage__transition_post",
+        {
+          parameters: { path: { workflow_id: workflowId, stage } },
+          payload: {
+            target_state: targetState,
+            expected_workflow_version: expectedWorkflowVersion,
+            expected_stage_version: expectedStageVersion,
+            correlation_id: this.correlationIdFactory(),
+          },
+        },
+      )
+    ).payload;
+  }
+
+  async reopenStage(
+    workflowId: string,
+    stage: Stage,
+    expectedWorkflowVersion: number,
+  ): Promise<WorkflowSnapshot> {
+    return (
+      await this.client.command<WorkflowSnapshot>(
+        "reopen_stage_api_v1_workflows__workflow_id__stages__stage__reopen_post",
+        {
+          parameters: { path: { workflow_id: workflowId, stage } },
+          payload: {
+            expected_version: expectedWorkflowVersion,
             correlation_id: this.correlationIdFactory(),
           },
         },

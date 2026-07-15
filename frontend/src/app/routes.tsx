@@ -5,6 +5,7 @@ import { PreflightPage } from "../features/preflight/preflight-page";
 import { ProjectsPage } from "../features/projects/projects-page";
 import { SettingsPage } from "../features/settings/settings-page";
 import { StartupPage } from "../features/startup/startup-page";
+import { StageWorkspacePage } from "../features/stages/stage-workspace-page";
 import { AppShell } from "./app-shell";
 
 function UnavailablePage() {
@@ -25,6 +26,7 @@ export function AppRoutes() {
       <Route element={<AppShell />}>
         <Route path="projects" element={<ProjectsPage />} />
         <Route path="projects/:projectId/preflight" element={<PreflightPage />} />
+        <Route path="projects/:projectId/stages/:stage" element={<StageWorkspacePage />} />
         <Route path="projects/:projectId" element={<ProjectOverviewPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="diagnostics" element={<UnavailablePage />} />

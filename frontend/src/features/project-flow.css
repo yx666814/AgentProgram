@@ -493,6 +493,217 @@ textarea:focus-visible {
   font-size: 12px;
 }
 
+.stage-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.stage-summary-grid article {
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  background: var(--surface-control);
+}
+
+.stage-summary-grid span,
+.stage-summary-grid strong,
+.stage-summary-grid small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stage-summary-grid span,
+.stage-summary-grid small {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.stage-summary-grid strong {
+  margin: 5px 0;
+  font-size: 15px;
+}
+
+.stage-scope-panel {
+  margin-bottom: 12px;
+}
+
+.stage-scope-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--border-default);
+}
+
+.stage-scope-grid > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+  padding: 12px 14px;
+  background: var(--surface-panel);
+}
+
+.stage-scope-grid h3 {
+  margin: 0 0 4px;
+  font-size: 12px;
+}
+
+.stage-scope-grid span,
+.stage-scope-grid code {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stage-main-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(330px, 0.65fr);
+  gap: 12px;
+}
+
+.stage-side-stack {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.message-history {
+  min-height: 220px;
+  max-height: 430px;
+  overflow: auto;
+  padding: 10px 12px;
+}
+
+.message-item {
+  margin-bottom: 9px;
+  padding: 11px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 9px;
+  background: var(--surface-control);
+}
+
+.message-item > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.message-item header span,
+.message-item small {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.message-item p {
+  margin: 8px 0;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.message-user {
+  border-left: 2px solid var(--accent-default);
+}
+
+.message-composer {
+  padding: 12px;
+  border-top: 1px solid var(--border-default);
+}
+
+.message-composer .page-actions {
+  min-height: 34px;
+  margin-top: 8px;
+}
+
+.correction-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  border-radius: 7px;
+  background: var(--accent-soft);
+  color: var(--accent-default);
+  font-size: 10px;
+}
+
+.task-list,
+.runtime-list {
+  max-height: 230px;
+  overflow: auto;
+}
+
+.task-item,
+.runtime-list article {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.task-item:last-child,
+.runtime-list article:last-child {
+  border-bottom: 0;
+}
+
+.task-item strong,
+.task-item span,
+.runtime-list strong,
+.runtime-list span {
+  display: block;
+}
+
+.task-item span,
+.runtime-list span {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.task-composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border-default);
+}
+
+.contract-note,
+.event-wait {
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.contract-note {
+  margin: 0;
+  padding: 9px 12px;
+  border-top: 1px solid var(--border-default);
+}
+
+.event-wait {
+  padding: 7px 12px;
+}
+
+.global-wait {
+  margin-bottom: 10px;
+  border: 1px solid var(--accent-border);
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent-default);
+}
+
 @media (max-height: 760px) {
   .startup-card {
     padding: 20px;
