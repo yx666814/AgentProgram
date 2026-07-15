@@ -35,6 +35,24 @@ export type TaskList = components["schemas"]["TaskListResponse"];
 export type ToolCallList = components["schemas"]["ToolCallList"];
 export type AgentRunList = components["schemas"]["AgentRunListResponse"];
 export type RoomModelAssignment = components["schemas"]["RoomModelAssignment"];
+export type ArtifactInventory = components["schemas"]["ArtifactInventoryResponse"];
+export type GateList = components["schemas"]["GateListResponse"];
+export type ApprovalList = components["schemas"]["ApprovalListResponse"];
+export type Approval = components["schemas"]["Approval"];
+export type ApprovalDecision = components["schemas"]["ApprovalDecisionResponse"];
+export type HandoffList = components["schemas"]["HandoffListResponse"];
+export type ChangeRequestList = components["schemas"]["ChangeRequestListResponse"];
+export type CapabilityRequestList = components["schemas"]["CapabilityRequestList"];
+export type CapabilityRequest = components["schemas"]["CapabilityRequestRecord"];
+export type ConflictList = components["schemas"]["ConflictListResponse"];
+export type FileConflict = components["schemas"]["FileConflict"];
+export type ConflictResolution = components["schemas"]["ConflictResolution"];
+export type ConflictResolutionResult = components["schemas"]["ConflictResolveResponse"];
+export type CheckpointList = components["schemas"]["CheckpointListResponse"];
+export type ProjectCheckpoint = components["schemas"]["ProjectCheckpoint"];
+export type RestorePlan = components["schemas"]["RestorePlanResponse"];
+export type RestoreResult = components["schemas"]["CheckpointRestoreResponse"];
+export type ExternalChangeList = components["schemas"]["ExternalChangeListResponse"];
 
 export type CorrelationIdFactory = () => string;
 
@@ -352,6 +370,189 @@ export class BackendApi {
             correlation_id: this.correlationIdFactory(),
           },
         },
+      )
+    ).payload;
+  }
+
+  async listArtifacts(workflowId: string): Promise<ArtifactInventory> {
+    return (
+      await this.client.query<ArtifactInventory>(
+        "list_artifacts_api_v1_workflows__workflow_id__artifacts_get",
+        { parameters: { path: { workflow_id: workflowId } } },
+      )
+    ).payload;
+  }
+
+  async listQualityGates(workflowId: string): Promise<GateList> {
+    return (
+      await this.client.query<GateList>(
+        "list_quality_gates_api_v1_workflows__workflow_id__quality_gates_get",
+        { parameters: { path: { workflow_id: workflowId } } },
+      )
+    ).payload;
+  }
+
+  async listApprovals(workflowId: string): Promise<ApprovalList> {
+    return (
+      await this.client.query<ApprovalList>(
+        "list_approvals_api_v1_workflows__workflow_id__approvals_get",
+        { parameters: { path: { workflow_id: workflowId }, query: {} } },
+      )
+    ).payload;
+  }
+
+  async decideApproval(
+    approval: Approval,
+    approved: boolean,
+    reason: string | null,
+  ): Promise<ApprovalDecision> {
+    return (
+      await this.client.command<ApprovalDecision>(
+        "decide_gate_approval_api_v1_approvals__approval_id__decision_post",
+        {
+          parameters: { path: { approval_id: approval.id } },
+          payload: {
+            approved,
+            expected_version: approval.version,
+            reason,
+            correlation_id: this.correlationIdFactory(),
+          },
+        },
+      )
+    ).payload;
+  }
+
+  async listHandoffs(workflowId: string): Promise<HandoffList> {
+    return (
+      await this.client.query<HandoffList>(
+        "list_handoffs_api_v1_workflows__workflow_id__handoffs_get",
+        { parameters: { path: { workflow_id: workflowId } } },
+      )
+    ).payload;
+  }
+
+  async listChangeRequests(workflowId: string): Promise<ChangeRequestList> {
+    return (
+      await this.client.query<ChangeRequestList>(
+        "list_change_requests_api_v1_workflows__workflow_id__change_requests_get",
+        { parameters: { path: { workflow_id: workflowId } } },
+      )
+    ).payload;
+  }
+
+  async listCapabilityRequests(workflowId: string): Promise<CapabilityRequestList> {
+    return (
+      await this.client.query<CapabilityRequestList>(
+        "list_capability_requests_api_v1_workflows__workflow_id__capability_requests_get",
+        { parameters: { path: { workflow_id: workflowId }, query: {} } },
+      )
+    ).payload;
+  }
+
+  async decideCapability(
+    request: CapabilityRequest,
+    approved: boolean,
+    reason: string | null,
+  ): Promise<CapabilityRequest> {
+    return (
+      await this.client.command<CapabilityRequest>(
+        "decide_capability_api_v1_capability_requests__request_id__decision_post",
+        {
+          parameters: { path: { request_id: request.id } },
+          payload: {
+            approved,
+            expected_version: request.version,
+            reason,
+            correlation_id: this.correlationIdFactory(),
+          },
+        },
+      )
+    ).payload;
+  }
+
+  async listConflicts(projectId: string): Promise<ConflictList> {
+    return (
+      await this.client.query<ConflictList>(
+        "list_conflicts_api_v1_projects__project_id__conflicts_get",
+        { parameters: { path: { project_id: projectId } } },
+      )
+    ).payload;
+  }
+
+  async resolveConflict(input: {
+    agentCheckpointId: string | null;
+    conflict: FileConflict;
+    expectedProjectVersion: number;
+    mergedContentHash: string | null;
+    resolution: ConflictResolution;
+  }): Promise<ConflictResolutionResult> {
+    return (
+      await this.client.command<ConflictResolutionResult>(
+        "resolve_conflict_api_v1_projects__project_id__conflicts__conflict_id__resolve_post",
+        {
+          parameters: {
+            path: { project_id: input.conflict.project_id, conflict_id: input.conflict.id },
+          },
+          payload: {
+            resolution: input.resolution,
+            expected_conflict_version: input.conflict.version,
+            expected_project_version: input.expectedProjectVersion,
+            agent_checkpoint_id: input.agentCheckpointId,
+            merged_content_hash: input.mergedContentHash,
+            correlation_id: this.correlationIdFactory(),
+          },
+        },
+      )
+    ).payload;
+  }
+
+  async listCheckpoints(projectId: string): Promise<CheckpointList> {
+    return (
+      await this.client.query<CheckpointList>(
+        "list_checkpoints_api_v1_projects__project_id__checkpoints_get",
+        { parameters: { path: { project_id: projectId } } },
+      )
+    ).payload;
+  }
+
+  async planRestore(projectId: string, checkpointId: string): Promise<RestorePlan> {
+    return (
+      await this.client.command<RestorePlan>(
+        "plan_restore_api_v1_projects__project_id__checkpoints__checkpoint_id__restore_plan_post",
+        {
+          parameters: { path: { project_id: projectId, checkpoint_id: checkpointId } },
+          payload: { correlation_id: this.correlationIdFactory() },
+        },
+      )
+    ).payload;
+  }
+
+  async restoreCheckpoint(
+    projectId: string,
+    checkpointId: string,
+    protectionCheckpointId: string,
+    expectedProjectVersion: number,
+  ): Promise<RestoreResult> {
+    return (
+      await this.client.command<RestoreResult>(
+        "restore_checkpoint_api_v1_projects__project_id__checkpoints__checkpoint_id__restore_post",
+        {
+          parameters: { path: { project_id: projectId, checkpoint_id: checkpointId } },
+          payload: {
+            protection_checkpoint_id: protectionCheckpointId,
+            expected_project_version: expectedProjectVersion,
+            correlation_id: this.correlationIdFactory(),
+          },
+        },
+      )
+    ).payload;
+  }
+
+  async listExternalChanges(projectId: string): Promise<ExternalChangeList> {
+    return (
+      await this.client.query<ExternalChangeList>(
+        "list_external_changes_api_v1_projects__project_id__external_changes_get",
+        { parameters: { path: { project_id: projectId } } },
       )
     ).payload;
   }

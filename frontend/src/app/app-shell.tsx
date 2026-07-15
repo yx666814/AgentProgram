@@ -10,6 +10,15 @@ function pageTitle(pathname: string): string {
   if (/^\/projects\/[^/]+\/stages\/[^/]+$/.test(pathname)) {
     return "阶段工作区";
   }
+  if (pathname.endsWith("/artifacts")) {
+    return "产出与交接";
+  }
+  if (pathname.endsWith("/approvals")) {
+    return "审批与能力";
+  }
+  if (pathname.endsWith("/recovery")) {
+    return "冲突与恢复";
+  }
   if (pathname.endsWith("/preflight")) {
     return "项目预检";
   }
@@ -70,6 +79,14 @@ export function AppShell() {
                 </NavLink>
               )
             ))}
+            {projectId !== null ? (
+              <>
+                <div className="nav-section-label">治理</div>
+                <NavLink className={navigationClass} to={`/projects/${projectId}/artifacts`}>产出与交接</NavLink>
+                <NavLink className={navigationClass} to={`/projects/${projectId}/approvals`}>审批与能力</NavLink>
+                <NavLink className={navigationClass} to={`/projects/${projectId}/recovery`}>冲突与恢复</NavLink>
+              </>
+            ) : null}
             <div className="nav-section-label">记录</div>
             <NavLink className={navigationClass} to="/diagnostics">
               事件与诊断
