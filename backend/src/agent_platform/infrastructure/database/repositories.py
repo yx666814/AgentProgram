@@ -4,6 +4,7 @@ import re
 from copy import deepcopy
 from datetime import UTC, datetime
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_platform.domain.events.models import ActorRef, ActorType, EventEnvelope, EventSource
@@ -102,20 +103,43 @@ class EventLogRepository:
         row = await self._session.get(EventLogRow, event_id)
         if row is None:
             return None
-        if row.schema_version != 1:
-            raise ValueError("persisted event schema version is invalid")
-        return EventEnvelope(
-            schema_version=1,
-            event_id=row.event_id,
-            event_type=row.event_type,
-            correlation_id=row.correlation_id,
-            causation_id=row.causation_id,
-            actor=ActorRef(type=ActorType(row.actor_type), id=row.actor_id),
-            source=EventSource(row.source),
-            occurred_at=row.occurred_at,
-            project_id=row.project_id,
-            workflow_id=row.workflow_id,
-            room_id=row.room_id,
-            task_id=row.task_id,
-            payload=deepcopy(row.payload),
-        )
+        return _envelope_from_row(row)
+
+    async def list_after(
+        self,
+        after_event_id: int,
+        *,
+        limit: int,
+        workflow_id: str | None = None,
+        project_id: str | None = None,
+    ) -> tuple[EventEnvelope, ...]:
+        if after_event_id < 0 or limit < 1:
+            raise ValueError("event replay cursor or limit is invalid")
+        statement = select(EventLogRow).where(EventLogRow.event_id > after_event_id)
+        if workflow_id is not None:
+            statement = statement.where(EventLogRow.workflow_id == workflow_id)
+        if project_id is not None:
+            statement = statement.where(EventLogRow.project_id == project_id)
+        statement = statement.order_by(EventLogRow.event_id).limit(limit)
+        rows = (await self._session.scalars(statement)).all()
+        return tuple(_envelope_from_row(row) for row in rows)
+
+
+def _envelope_from_row(row: EventLogRow) -> EventEnvelope:
+    if row.schema_version != 1:
+        raise ValueError("persisted event schema version is invalid")
+    return EventEnvelope(
+        schema_version=1,
+        event_id=row.event_id,
+        event_type=row.event_type,
+        correlation_id=row.correlation_id,
+        causation_id=row.causation_id,
+        actor=ActorRef(type=ActorType(row.actor_type), id=row.actor_id),
+        source=EventSource(row.source),
+        occurred_at=row.occurred_at,
+        project_id=row.project_id,
+        workflow_id=row.workflow_id,
+        room_id=row.room_id,
+        task_id=row.task_id,
+        payload=deepcopy(row.payload),
+    )

@@ -63,6 +63,37 @@ Every persisted `EventEnvelope` is written atomically with one Outbox aggregate 
 dead-letter state, and at-least-once delivery. The local audit projection excludes event payloads
 and records its idempotent side effect and delivery receipt in one transaction.
 
+Stage 3 persists workflows, five ordered stage runs, rooms, immutable sequenced messages, and a
+conditional task queue. Authenticated REST commands create/start workflows, transition or reopen
+stages, append discussion/correction/consultation messages, and queue/start/complete/cancel tasks.
+Workflow events add the `websocket_v1` Outbox target. Clients request a short-lived single-use
+ticket at `POST /api/v1/events/tickets`, connect to `/api/v1/events/ws`, and send the last observed
+`event_id` as `after_event_id`; committed events are replayed from SQLite before gap-free live
+delivery. Optional controls are:
+
+- `AGENT_PLATFORM_WEBSOCKET_TICKET_TTL_SECONDS`
+- `AGENT_PLATFORM_WEBSOCKET_REPLAY_BATCH_SIZE`
+- `AGENT_PLATFORM_WEBSOCKET_SUBSCRIBER_QUEUE_CAPACITY`
+- `AGENT_PLATFORM_WEBSOCKET_PUBLISHER_DEDUP_CAPACITY`
+
+Stage 4 adds versioned model profiles and room assignments without accepting or persisting API
+keys. Profiles contain only `credential_ref` and `masked_hint`; the default standalone backend
+registers an unavailable SecretStore implementation, while the desktop integration will inject
+the real OS-backed resolver. OpenAI-compatible and Anthropic adapters stream provider responses
+through a cancellation-aware interface. Agent runs use an idempotent room request key, support a
+primary-only discussion path, and require Primary + Reviewer A + Reviewer B for formal P0/P1/P2R
+delivery. Final outputs are atomically stored under `model-outputs/` by SHA-256 reference; SQLite
+stores only references, hashes, sizes, call state, and token usage. NDJSON streaming is available
+at `POST /api/v1/agent-runs/{run_id}/stream`. Optional controls are:
+
+- `AGENT_PLATFORM_MODEL_OUTPUT_MAX_BYTES`
+- `AGENT_PLATFORM_MODEL_CONTEXT_MAX_CHARACTERS`
+- `AGENT_PLATFORM_MODEL_SUMMARY_TRIGGER_CHARACTERS`
+- `AGENT_PLATFORM_MODEL_SUMMARY_MAX_CHARACTERS`
+- `AGENT_PLATFORM_MODEL_MAX_OUTPUT_TOKENS`
+- `AGENT_PLATFORM_MODEL_HTTP_TIMEOUT_SECONDS`
+- `AGENT_PLATFORM_PROJECT_INSTRUCTION_MAX_BYTES`
+
 ## Verification
 
 ```powershell

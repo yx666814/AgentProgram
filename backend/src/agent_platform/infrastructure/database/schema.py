@@ -6,7 +6,9 @@ PROJECT_REGISTRY_DATABASE_REVISION: Final[str] = "0003_project_registry"
 PROJECT_PREFLIGHT_DATABASE_REVISION: Final[str] = "0004_project_preflight"
 PROJECT_CHECKPOINT_DATABASE_REVISION: Final[str] = "0005_project_checkpoints"
 PROJECT_CONFLICT_DATABASE_REVISION: Final[str] = "0006_project_conflicts"
-CURRENT_DATABASE_REVISION: Final[str] = PROJECT_CONFLICT_DATABASE_REVISION
+WORKFLOW_DATABASE_REVISION: Final[str] = "0007_workflows"
+MODEL_RUNTIME_DATABASE_REVISION: Final[str] = "0008_model_runtime"
+CURRENT_DATABASE_REVISION: Final[str] = MODEL_RUNTIME_DATABASE_REVISION
 REQUIRED_DATABASE_TABLES: Final[frozenset[str]] = frozenset(
     {
         "alembic_version",
@@ -23,5 +25,16 @@ REQUIRED_DATABASE_TABLES: Final[frozenset[str]] = frozenset(
         "checkpoint_files",
         "external_changes",
         "file_conflicts",
+        "workflows",
+        "stage_runs",
+        "rooms",
+        "messages",
+        "tasks",
+        "model_profiles",
+        "room_model_assignments",
+        "agent_runs",
+        "model_calls",
+        "usage_records",
+        "conversation_summaries",
     }
 )

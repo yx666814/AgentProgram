@@ -7,6 +7,7 @@ from typing import Final, Protocol
 from agent_platform.domain.events.models import EventEnvelope
 
 LOCAL_AUDIT_CONSUMER: Final[str] = "local_audit_v1"
+WEBSOCKET_CONSUMER: Final[str] = "websocket_v1"
 
 
 @dataclass(frozen=True, slots=True)

@@ -255,17 +255,21 @@ abandoned
 
 验证记录：实现和门禁结果见 `docs/backend/BACKEND-STAGE2-TRACEABILITY-v1.md`；Stage 2 完成后进入阶段 3，前端阶段 6 仍按独立设计流程推进。
 
-### 阶段 3：后端工作流、聊天室与实时事件
+### 阶段 3：后端工作流、聊天室与实时事件（已完成）
 
 交付：Workflow/StageRun/Room/Task 状态机、五阶段锁定、消息不可变、任务队列、取消、完成后咨询、显式 reopen、REST API、WebSocket Ticket 和事件重放。
 
 门禁：状态转换、条件更新并发、重复 start、消息序号、断线重连、事件去重和 reopen 失效测试。
 
-### 阶段 4：后端模型与 Agent Runtime
+验证记录：实现和门禁结果见 `docs/backend/BACKEND-STAGE3-TRACEABILITY-v1.md`；阶段 4 在此持久化工作流与实时事件基础上接入模型和 Agent Runtime。
+
+### 阶段 4：后端模型与 Agent Runtime（已完成）
 
 交付：ModelProfile、SecretStore Port、OpenAI 兼容适配器、Anthropic 适配器、Prompt Composer、Context Builder、Rolling Summary、P0/P1/P2R、流式输出、取消和用量。
 
 门禁：密钥不落盘、独立 credential_ref、Fake Model 一主双校、局部失败、上下文隔离、重复调用检测和取消传播测试。
+
+验证记录：实现和门禁结果见 `docs/backend/BACKEND-STAGE4-TRACEABILITY-v1.md`；阶段 5 在此运行时基础上增加工具、门禁、交接与崩溃恢复。
 
 ### 阶段 5：后端工具、门禁、交接与恢复
 
