@@ -35,6 +35,18 @@ export type TaskList = components["schemas"]["TaskListResponse"];
 export type ToolCallList = components["schemas"]["ToolCallList"];
 export type AgentRunList = components["schemas"]["AgentRunListResponse"];
 export type RoomModelAssignment = components["schemas"]["RoomModelAssignment"];
+export type ModelProfile = components["schemas"]["ModelProfile"];
+export type ModelProfileList = components["schemas"]["ModelProfileListResponse"];
+export type ModelProfileCreateInput = Omit<
+  components["schemas"]["ModelProfileCreateRequest"],
+  "correlation_id"
+>;
+export type ModelProfileUpdateInput = Omit<
+  components["schemas"]["ModelProfileUpdateRequest"],
+  "correlation_id" | "expected_version"
+>;
+export type ModelProvider = components["schemas"]["ModelProvider"];
+export type EventReplay = components["schemas"]["EventReplayResponse"];
 export type ArtifactInventory = components["schemas"]["ArtifactInventoryResponse"];
 export type GateList = components["schemas"]["GateListResponse"];
 export type ApprovalList = components["schemas"]["ApprovalListResponse"];
@@ -53,6 +65,11 @@ export type ProjectCheckpoint = components["schemas"]["ProjectCheckpoint"];
 export type RestorePlan = components["schemas"]["RestorePlanResponse"];
 export type RestoreResult = components["schemas"]["CheckpointRestoreResponse"];
 export type ExternalChangeList = components["schemas"]["ExternalChangeListResponse"];
+
+export interface CommandReceipt<T> {
+  correlationId: string;
+  payload: T;
+}
 
 export type CorrelationIdFactory = () => string;
 
@@ -329,6 +346,79 @@ export class BackendApi {
         "get_room_assignment_api_v1_rooms__room_id__model_assignment_get",
         { parameters: { path: { room_id: roomId } } },
       )
+    ).payload;
+  }
+
+  async listModelProfiles(): Promise<ModelProfileList> {
+    return (
+      await this.client.query<ModelProfileList>("list_profiles_api_v1_model_profiles_get")
+    ).payload;
+  }
+
+  async createModelProfile(
+    input: ModelProfileCreateInput,
+  ): Promise<CommandReceipt<ModelProfile>> {
+    const correlationId = this.correlationIdFactory();
+    const response = await this.client.command<ModelProfile>(
+      "create_profile_api_v1_model_profiles_post",
+      {
+        correlationId,
+        payload: { ...input, correlation_id: correlationId },
+      },
+    );
+    return { correlationId, payload: response.payload };
+  }
+
+  async updateModelProfile(
+    profile: ModelProfile,
+    input: ModelProfileUpdateInput,
+  ): Promise<CommandReceipt<ModelProfile>> {
+    const correlationId = this.correlationIdFactory();
+    const response = await this.client.command<ModelProfile>(
+      "update_profile_api_v1_model_profiles__profile_id__put",
+      {
+        correlationId,
+        parameters: { path: { profile_id: profile.id } },
+        payload: {
+          ...input,
+          expected_version: profile.version,
+          correlation_id: correlationId,
+        },
+      },
+    );
+    return { correlationId, payload: response.payload };
+  }
+
+  async assignRoomModels(input: {
+    assignment: RoomModelAssignment | null;
+    primaryProfileId: string;
+    reviewerAProfileId: string | null;
+    reviewerBProfileId: string | null;
+    roomId: string;
+  }): Promise<CommandReceipt<RoomModelAssignment>> {
+    const correlationId = this.correlationIdFactory();
+    const response = await this.client.command<RoomModelAssignment>(
+      "assign_room_models_api_v1_rooms__room_id__model_assignment_put",
+      {
+        correlationId,
+        parameters: { path: { room_id: input.roomId } },
+        payload: {
+          primary_profile_id: input.primaryProfileId,
+          reviewer_a_profile_id: input.reviewerAProfileId,
+          reviewer_b_profile_id: input.reviewerBProfileId,
+          expected_version: input.assignment?.version ?? null,
+          correlation_id: correlationId,
+        },
+      },
+    );
+    return { correlationId, payload: response.payload };
+  }
+
+  async replayWorkflowEvents(workflowId: string, afterEventId: number): Promise<EventReplay> {
+    return (
+      await this.client.query<EventReplay>("replay_events_api_v1_events_replay_get", {
+        parameters: { query: { workflow_id: workflowId, after_event_id: afterEventId } },
+      })
     ).payload;
   }
 

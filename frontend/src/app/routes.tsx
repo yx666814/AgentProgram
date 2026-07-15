@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 
 import { ApprovalsPage } from "../features/approvals/approvals-page";
 import { ArtifactsPage } from "../features/artifacts/artifacts-page";
+import { DiagnosticsPage } from "../features/diagnostics/diagnostics-page";
 import { ProjectOverviewPage } from "../features/overview/project-overview-page";
 import { PreflightPage } from "../features/preflight/preflight-page";
 import { ProjectsPage } from "../features/projects/projects-page";
@@ -35,7 +36,7 @@ export function AppRoutes() {
         <Route path="projects/:projectId/recovery" element={<RecoveryPage />} />
         <Route path="projects/:projectId" element={<ProjectOverviewPage />} />
         <Route path="settings" element={<SettingsPage />} />
-        <Route path="diagnostics" element={<UnavailablePage />} />
+        <Route path="diagnostics" element={<DiagnosticsPage />} />
         <Route path="*" element={<UnavailablePage />} />
       </Route>
     </Routes>

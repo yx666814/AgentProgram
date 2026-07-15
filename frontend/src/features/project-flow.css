@@ -937,6 +937,271 @@ select:focus-visible {
   color: inherit;
 }
 
+.settings-summary-grid,
+.diagnostic-summary-grid {
+  display: grid;
+  gap: 9px;
+  margin-bottom: 12px;
+}
+
+.settings-summary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.diagnostic-summary-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.settings-summary-grid article,
+.diagnostic-summary-grid article {
+  min-width: 0;
+  padding: 11px 13px;
+  border: 1px solid var(--border-default);
+  border-radius: 9px;
+  background: var(--surface-control);
+}
+
+.settings-summary-grid span,
+.settings-summary-grid strong,
+.settings-summary-grid small,
+.diagnostic-summary-grid span,
+.diagnostic-summary-grid strong,
+.diagnostic-summary-grid small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-summary-grid span,
+.settings-summary-grid small,
+.diagnostic-summary-grid span,
+.diagnostic-summary-grid small {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.settings-summary-grid strong,
+.diagnostic-summary-grid strong {
+  margin: 5px 0;
+  font-size: 15px;
+}
+
+.settings-main-grid,
+.diagnostics-main-grid,
+.diagnostics-lower-grid {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.settings-main-grid {
+  grid-template-columns: minmax(0, 1.05fr) minmax(410px, 0.95fr);
+}
+
+.diagnostics-main-grid {
+  grid-template-columns: minmax(0, 1.3fr) minmax(360px, 0.7fr);
+}
+
+.diagnostics-lower-grid {
+  grid-template-columns: 1fr 1fr;
+}
+
+.profile-list,
+.diagnostic-event-list,
+.tool-audit-list,
+.recovery-audit-list {
+  max-height: 440px;
+  overflow: auto;
+}
+
+.profile-list > article,
+.diagnostic-event-list > article,
+.tool-audit-list > article,
+.recovery-audit-list > article {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.profile-list > article:last-child,
+.diagnostic-event-list > article:last-child,
+.tool-audit-list > article:last-child,
+.recovery-audit-list > article:last-child {
+  border-bottom: 0;
+}
+
+.profile-list article > header,
+.diagnostic-event-list article > header,
+.tool-audit-list article > header,
+.recovery-audit-list article > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.profile-list article > header strong,
+.profile-list article > header span,
+.diagnostic-event-list article > header strong,
+.diagnostic-event-list article > header span,
+.tool-audit-list article > header strong,
+.tool-audit-list article > header span,
+.recovery-audit-list article > header strong,
+.recovery-audit-list article > header span {
+  display: block;
+}
+
+.profile-list article > header span,
+.diagnostic-event-list article > header span,
+.tool-audit-list article > header span,
+.recovery-audit-list article > header span {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.profile-list dl,
+.diagnostic-event-list dl,
+.tool-audit-list dl,
+.recovery-audit-list dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px 12px;
+  margin: 10px 0 0;
+}
+
+.profile-list dl > div,
+.diagnostic-event-list dl > div,
+.tool-audit-list dl > div,
+.recovery-audit-list dl > div {
+  min-width: 0;
+}
+
+.profile-list dt,
+.profile-list dd,
+.diagnostic-event-list dt,
+.diagnostic-event-list dd,
+.tool-audit-list dt,
+.tool-audit-list dd,
+.recovery-audit-list dt,
+.recovery-audit-list dd {
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-list dt,
+.diagnostic-event-list dt,
+.tool-audit-list dt,
+.recovery-audit-list dt {
+  color: var(--text-muted);
+}
+
+.profile-list dd,
+.diagnostic-event-list dd,
+.tool-audit-list dd,
+.recovery-audit-list dd {
+  margin: 2px 0 0;
+}
+
+.model-profile-form {
+  padding: 12px 14px 14px;
+}
+
+.form-grid,
+.assignment-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 11px;
+}
+
+.form-grid label,
+.assignment-grid label,
+.audit-query-form label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.inline-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.inline-check input {
+  width: auto;
+  min-height: auto;
+}
+
+.settings-contract-note {
+  margin: 12px -14px 0;
+}
+
+.settings-form-actions {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  margin-top: 12px;
+}
+
+.assignment-panel,
+.unavailable-settings-panel,
+.audit-query-panel {
+  margin-bottom: 12px;
+}
+
+.assignment-body {
+  padding: 0 14px 14px;
+}
+
+.assignment-body .stacked-field {
+  padding-right: 0;
+  padding-left: 0;
+}
+
+.assignment-grid {
+  margin-top: 14px;
+}
+
+.assignment-grid .page-actions {
+  align-items: flex-end;
+  margin: 0;
+}
+
+.unavailable-capability {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px;
+}
+
+.unavailable-capability p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.audit-query-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px auto;
+  align-items: end;
+  gap: 10px;
+  padding: 14px;
+}
+
+.diagnostic-event-list,
+.tool-audit-list {
+  max-height: 520px;
+}
+
 @media (max-height: 760px) {
   .startup-card {
     padding: 20px;
