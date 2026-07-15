@@ -98,6 +98,8 @@ class Settings(BaseSettings):
     model_max_output_tokens: int = Field(default=8192, ge=1, le=1_000_000)
     model_http_timeout_seconds: float = Field(default=120.0, ge=1.0, le=3600.0)
     project_instruction_max_bytes: int = Field(default=1024 * 1024, ge=1024, le=16 * 1024 * 1024)
+    tool_file_max_bytes: int = Field(default=16 * 1024 * 1024, ge=1024, le=1024 * 1024 * 1024)
+    tool_output_max_bytes: int = Field(default=1024 * 1024, ge=1024, le=64 * 1024 * 1024)
 
     @field_validator("session_token")
     @classmethod

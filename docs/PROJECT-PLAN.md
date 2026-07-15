@@ -271,13 +271,15 @@ abandoned
 
 验证记录：实现和门禁结果见 `docs/backend/BACKEND-STAGE4-TRACEABILITY-v1.md`；阶段 5 在此运行时基础上增加工具、门禁、交接与崩溃恢复。
 
-### 阶段 5：后端工具、门禁、交接与恢复
+### 阶段 5：后端工具、门禁、交接与恢复（已完成）
 
 交付：Tool Catalog、PathGuard、原子文件工具、受控 Shell/Build/Test、CapabilityRequest、ToolCall 审计、ArtifactVersion、五阶段 Gate、Approval、HandoffPacket、ChangeRequest、Pause/Resume/Stop/Abandon、崩溃恢复、后端 Ready/Shutdown 协议。
 
 不交付：Git 工具、Electron 页面、Windows 安装包。
 
 门禁：工具越权与进程树测试、MANUAL/AUTONOMOUS、Warning、返工、历史包校验、Worker/Tool 强杀、数据库恢复、完整 Fake-Model 后端五阶段 E2E。通过后冻结 REST、WebSocket、IPC 和 Desktop Control Contract，后端功能进入 V1 完成状态。
+
+验证记录：实现、冻结契约和门禁结果见 `docs/backend/BACKEND-STAGE5-TRACEABILITY-v1.md`。后端阶段 0–5 已形成完整 V1 能力基线；后续前端与桌面端必须复用这些 Command、Query、Event、错误和控制语义，不得创建无后端实现的交互。
 
 ### 阶段 6：前端设计
 

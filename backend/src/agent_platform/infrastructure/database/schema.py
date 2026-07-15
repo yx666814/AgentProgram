@@ -8,7 +8,8 @@ PROJECT_CHECKPOINT_DATABASE_REVISION: Final[str] = "0005_project_checkpoints"
 PROJECT_CONFLICT_DATABASE_REVISION: Final[str] = "0006_project_conflicts"
 WORKFLOW_DATABASE_REVISION: Final[str] = "0007_workflows"
 MODEL_RUNTIME_DATABASE_REVISION: Final[str] = "0008_model_runtime"
-CURRENT_DATABASE_REVISION: Final[str] = MODEL_RUNTIME_DATABASE_REVISION
+STAGE5_DATABASE_REVISION: Final[str] = "0009_stage5_governance"
+CURRENT_DATABASE_REVISION: Final[str] = STAGE5_DATABASE_REVISION
 REQUIRED_DATABASE_TABLES: Final[frozenset[str]] = frozenset(
     {
         "alembic_version",
@@ -36,5 +37,16 @@ REQUIRED_DATABASE_TABLES: Final[frozenset[str]] = frozenset(
         "model_calls",
         "usage_records",
         "conversation_summaries",
+        "capability_requests",
+        "approvals",
+        "tool_calls",
+        "artifacts",
+        "artifact_versions",
+        "quality_gate_runs",
+        "quality_gate_issues",
+        "quality_gate_artifacts",
+        "handoff_packets",
+        "change_requests",
+        "recovery_records",
     }
 )

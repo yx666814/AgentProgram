@@ -17,19 +17,48 @@ def test_run_consumes_validated_host_and_port(
         data_root=tmp_path,
         session_token="local-secret",
     )
-    calls: list[tuple[object, str, int, object]] = []
+    configs: list[object] = []
+    servers: list[object] = []
     prepared: list[str] = []
+
+    class FakeConfig:
+        def __init__(
+            self,
+            app: object,
+            *,
+            host: str,
+            port: int,
+            log_config: object,
+        ) -> None:
+            self.app = app
+            self.host = host
+            self.port = port
+            self.log_config = log_config
+            configs.append(self)
+
+    class FakeServer:
+        def __init__(self, config: object) -> None:
+            self.config = config
+            self.should_exit = False
+            self.ran = False
+            servers.append(self)
+
+        def run(self) -> None:
+            self.ran = True
+
     monkeypatch.setattr(main_module, "prepare_uvicorn_logging", prepared.append)
-    monkeypatch.setattr(
-        main_module.uvicorn,
-        "run",
-        lambda app, *, host, port, log_config: calls.append((app, host, port, log_config)),
-    )
+    monkeypatch.setattr(main_module.uvicorn, "Config", FakeConfig)
+    monkeypatch.setattr(main_module.uvicorn, "Server", FakeServer)
 
     main_module.run(settings)
 
-    assert calls[0][0].state.settings is settings
-    assert calls[0][1:] == ("127.0.0.1", 43210, None)
+    config = configs[0]
+    server = servers[0]
+    assert config.app.state.settings is settings
+    assert (config.host, config.port, config.log_config) == ("127.0.0.1", 43210, None)
+    assert server.ran is True
+    assert config.app.state.shutdown_coordinator.request() is True
+    assert server.should_exit is True
     assert prepared == ["INFO"]
 
 

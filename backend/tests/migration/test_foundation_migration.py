@@ -14,8 +14,8 @@ import agent_platform.infrastructure.database.schema as database_schema
 from agent_platform.infrastructure.database.schema import (
     CURRENT_DATABASE_REVISION,
     FOUNDATION_DATABASE_REVISION,
-    MODEL_RUNTIME_DATABASE_REVISION,
     REQUIRED_DATABASE_TABLES,
+    STAGE5_DATABASE_REVISION,
 )
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -69,8 +69,8 @@ def test_foundation_revision_does_not_change_when_current_revision_advances(
     assert _load_foundation_module().revision == FOUNDATION_DATABASE_REVISION
 
 
-def test_current_database_revision_advances_to_model_runtime() -> None:
-    assert CURRENT_DATABASE_REVISION == MODEL_RUNTIME_DATABASE_REVISION
+def test_current_database_revision_advances_to_stage5() -> None:
+    assert CURRENT_DATABASE_REVISION == STAGE5_DATABASE_REVISION
 
 
 def test_required_database_tables_are_shared() -> None:
@@ -101,6 +101,17 @@ def test_required_database_tables_are_shared() -> None:
             "model_calls",
             "usage_records",
             "conversation_summaries",
+            "capability_requests",
+            "approvals",
+            "tool_calls",
+            "artifacts",
+            "artifact_versions",
+            "quality_gate_runs",
+            "quality_gate_issues",
+            "quality_gate_artifacts",
+            "handoff_packets",
+            "change_requests",
+            "recovery_records",
         }
     )
 
@@ -138,6 +149,17 @@ def test_foundation_migration_upgrades_and_downgrades_cleanly(tmp_path: Path) ->
         "model_calls",
         "usage_records",
         "conversation_summaries",
+        "capability_requests",
+        "approvals",
+        "tool_calls",
+        "artifacts",
+        "artifact_versions",
+        "quality_gate_runs",
+        "quality_gate_issues",
+        "quality_gate_artifacts",
+        "handoff_packets",
+        "change_requests",
+        "recovery_records",
     }
 
     _run_alembic("downgrade", "base", data_root=data_root)

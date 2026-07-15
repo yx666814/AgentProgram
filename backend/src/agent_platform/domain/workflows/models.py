@@ -9,6 +9,7 @@ from pydantic import AwareDatetime, Field, field_validator, model_validator
 from agent_platform.domain.contracts import Stage, StageRunState
 from agent_platform.domain.contracts.base import VersionedContractModel
 from agent_platform.domain.contracts.scalars import ContractId, PositiveVersion, require_utc
+from agent_platform.domain.governance import ExecutionMode
 from agent_platform.domain.shared.json_values import validate_json_payload
 
 WorkflowTitle = Annotated[str, Field(min_length=1, max_length=200)]
@@ -61,6 +62,7 @@ class Workflow(VersionedContractModel):
     project_id: ContractId
     title: WorkflowTitle
     status: WorkflowStatus
+    execution_mode: ExecutionMode
     current_stage: Stage
     version: PositiveVersion
     created_at: AwareDatetime

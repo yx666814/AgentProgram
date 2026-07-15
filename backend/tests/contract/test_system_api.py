@@ -163,6 +163,34 @@ async def test_system_info_requires_local_session(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_desktop_control_ready_and_shutdown_protocol(tmp_path: Path) -> None:
+    app = create_app(_settings(tmp_path))
+    callbacks: list[str] = []
+    app.state.shutdown_coordinator.bind(lambda: callbacks.append("shutdown"))
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        ready = await client.get("/api/v1/system/control", headers=AUTHORIZATION)
+        accepted = await client.post("/api/v1/system/shutdown", headers=AUTHORIZATION)
+        shutting_down = await client.get("/api/v1/system/control", headers=AUTHORIZATION)
+        duplicate = await client.post("/api/v1/system/shutdown", headers=AUTHORIZATION)
+
+    assert ready.status_code == 200
+    assert ready.json() == {
+        "protocol_version": 1,
+        "status": "ready",
+        "shutdown_supported": True,
+    }
+    assert accepted.status_code == 202
+    assert accepted.json() == {"status": "accepted"}
+    assert callbacks == ["shutdown"]
+    assert shutting_down.json()["status"] == "shutting_down"
+    assert duplicate.json() == {"status": "already_requested"}
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("configured_token", "raw_credential"),
     [

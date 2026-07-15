@@ -10,8 +10,16 @@ _ALLOWED_TRANSITIONS: Final[dict[StageRunState, frozenset[StageRunState]]] = {
     StageRunState.DISCUSSING: frozenset({StageRunState.PRODUCING}),
     StageRunState.PRODUCING: frozenset({StageRunState.P2R_REVIEWING}),
     StageRunState.P2R_REVIEWING: frozenset({StageRunState.QUALITY_CHECKING}),
-    StageRunState.QUALITY_CHECKING: frozenset({StageRunState.WAITING_APPROVAL}),
-    StageRunState.WAITING_APPROVAL: frozenset({StageRunState.HANDOFF_READY}),
+    StageRunState.QUALITY_CHECKING: frozenset(
+        {
+            StageRunState.WAITING_APPROVAL,
+            StageRunState.WARNING_BLOCKED,
+            StageRunState.NEEDS_FIX,
+        }
+    ),
+    StageRunState.WAITING_APPROVAL: frozenset(
+        {StageRunState.HANDOFF_READY, StageRunState.NEEDS_FIX}
+    ),
     StageRunState.HANDOFF_READY: frozenset({StageRunState.COMPLETED}),
     StageRunState.NEEDS_FIX: frozenset({StageRunState.PRODUCING}),
     StageRunState.WARNING_BLOCKED: frozenset({StageRunState.DISCUSSING}),

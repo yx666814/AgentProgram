@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_platform.domain.contracts import STAGE_ORDER, Stage, StageRunState
+from agent_platform.domain.governance import ExecutionMode
 from agent_platform.domain.shared.errors import DomainError, ErrorCategory
 from agent_platform.domain.workflows import (
     Message,
@@ -554,6 +555,7 @@ def _workflow_row(workflow: Workflow) -> WorkflowRow:
         schema_version=workflow.schema_version,
         title=workflow.title,
         status=workflow.status.value,
+        execution_mode=workflow.execution_mode.value,
         current_stage=workflow.current_stage.value,
         version=workflow.version,
         created_at=workflow.created_at,
@@ -630,6 +632,7 @@ def _workflow_from_row(row: WorkflowRow) -> Workflow:
         project_id=row.project_id,
         title=row.title,
         status=WorkflowStatus(row.status),
+        execution_mode=ExecutionMode(row.execution_mode),
         current_stage=Stage(row.current_stage),
         version=row.version,
         created_at=row.created_at,
