@@ -4,6 +4,7 @@ export interface EventReadModel {
   lastAppliedEventId: number;
   lastEvent: PersistedEvent | null;
   appliedEventIds: readonly number[];
+  recentEvents: readonly PersistedEvent[];
   protocolIssue: "invalid_event" | "incompatible_schema" | null;
 }
 
@@ -12,6 +13,7 @@ export function createEventReadModel(): EventReadModel {
     lastAppliedEventId: 0,
     lastEvent: null,
     appliedEventIds: [],
+    recentEvents: [],
     protocolIssue: null,
   };
 }
@@ -25,6 +27,7 @@ export function applyPersistedEvent(model: EventReadModel, event: PersistedEvent
     lastAppliedEventId: eventId,
     lastEvent: event,
     appliedEventIds: [...model.appliedEventIds, eventId],
+    recentEvents: [...model.recentEvents, event].slice(-100),
     protocolIssue: null,
   };
 }
