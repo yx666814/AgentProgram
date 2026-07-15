@@ -1,6 +1,7 @@
 import json
 import logging
 from collections.abc import Iterator
+from datetime import timedelta
 from io import StringIO
 from pathlib import Path
 
@@ -8,6 +9,7 @@ import pytest
 import structlog
 
 from agent_platform.infrastructure.logging.configure import configure_logging, redact_secrets
+from agent_platform.infrastructure.redaction import register_known_secret
 
 
 @pytest.fixture
@@ -60,12 +62,13 @@ def test_configure_logging_renders_redacted_stdlib_extras_as_json(
     capsys: pytest.CaptureFixture[str],
     isolated_logging: logging.Logger,
 ) -> None:
-    configure_logging(tmp_path / "logs", "INFO")
+    runtime = configure_logging(tmp_path / "logs", "INFO")
 
     logging.getLogger("stdlib-test").info(
         "stdlib event",
         extra={"token": "stdlib-secret", "safe": "ok"},
     )
+    runtime.close()
 
     captured = capsys.readouterr()
     assert captured.out == ""
@@ -80,13 +83,14 @@ def test_configure_logging_routes_native_structlog_through_root_handler(
     capsys: pytest.CaptureFixture[str],
     isolated_logging: logging.Logger,
 ) -> None:
-    configure_logging(tmp_path / "logs", "INFO")
+    runtime = configure_logging(tmp_path / "logs", "INFO")
 
     structlog.get_logger("structlog-test").info(
         "structlog event",
         token="structlog-secret",
         safe="ok",
     )
+    runtime.close()
 
     captured = capsys.readouterr()
     assert captured.out == ""
@@ -103,11 +107,12 @@ def test_configure_logging_replaces_existing_root_configuration(
     isolated_logging.addHandler(existing_handler)
     isolated_logging.setLevel(logging.WARNING)
 
-    configure_logging(tmp_path / "logs", "DEBUG")
+    runtime = configure_logging(tmp_path / "logs", "DEBUG")
 
     assert isolated_logging.level == logging.DEBUG
     assert isolated_logging.handlers != [existing_handler]
     assert len(isolated_logging.handlers) == 1
+    runtime.close()
 
 
 def test_configure_logging_validates_level_before_creating_log_root(
@@ -120,3 +125,56 @@ def test_configure_logging_validates_level_before_creating_log_root(
         configure_logging(log_root, "verbose")
 
     assert not log_root.exists()
+
+
+def test_logging_persists_bounded_redacted_jsonl(
+    tmp_path: Path,
+    isolated_logging: logging.Logger,
+) -> None:
+    secret = "registered-runtime-secret"
+    registration = register_known_secret(secret)
+    runtime = configure_logging(
+        tmp_path / "logs",
+        "INFO",
+        max_bytes=64 * 1024,
+        max_record_bytes=1024,
+        retained_file_count=2,
+        retention_age=timedelta(days=1),
+        queue_capacity=64,
+        shutdown_drain_timeout=timedelta(seconds=1),
+    )
+    try:
+        logging.getLogger("bounded-test").info("payload %s", f"x{secret}" * 5000)
+    finally:
+        runtime.close()
+        registration.close()
+
+    lines = (tmp_path / "logs" / "backend.jsonl").read_bytes().splitlines(keepends=True)
+    assert lines
+    assert all(len(line) <= 1024 for line in lines)
+    event = json.loads(lines[-1])
+    assert event["event"] == "log_record_truncated"
+    assert secret.encode() not in b"".join(lines)
+
+
+def test_logging_rotates_and_close_is_idempotent(
+    tmp_path: Path,
+    isolated_logging: logging.Logger,
+) -> None:
+    runtime = configure_logging(
+        tmp_path / "logs",
+        "INFO",
+        max_bytes=1024,
+        max_record_bytes=512,
+        retained_file_count=2,
+        retention_age=timedelta(days=1),
+        queue_capacity=128,
+        shutdown_drain_timeout=timedelta(seconds=1),
+    )
+    for index in range(40):
+        logging.getLogger("rotation-test").info("record-%s-%s", index, "x" * 80)
+    runtime.close()
+    runtime.close()
+
+    assert (tmp_path / "logs" / "backend.jsonl").is_file()
+    assert (tmp_path / "logs" / "backend.jsonl.1").is_file()

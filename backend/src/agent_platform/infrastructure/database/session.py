@@ -1,3 +1,4 @@
+import asyncio
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +27,7 @@ class _AdaptedAioSQLiteConnection(Protocol):
 class Database:
     engine: AsyncEngine
     sessions: async_sessionmaker[AsyncSession]
+    write_lock: asyncio.Lock
 
     async def dispose(self) -> None:
         await self.engine.dispose()
@@ -61,4 +63,4 @@ def create_database(path: Path) -> Database:
     )
     event.listen(engine.sync_engine, "connect", _configure_sqlite_connection)
     sessions = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
-    return Database(engine=engine, sessions=sessions)
+    return Database(engine=engine, sessions=sessions, write_lock=asyncio.Lock())

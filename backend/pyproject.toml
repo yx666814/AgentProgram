@@ -18,6 +18,9 @@ dependencies = [
   "uvicorn[standard]>=0.34,<1",
 ]
 
+[project.scripts]
+agent-platform-backend = "agent_platform.main:main"
+
 [dependency-groups]
 dev = [
   "httpx>=0.28,<1",

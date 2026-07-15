@@ -73,7 +73,7 @@ Builder 是唯一默认拥有生产代码写入和本地构建测试能力的角
 ### 可选输入
 
 - 已有项目源代码、测试和配置。
-- Git 状态、差异和历史。
+- 工作区变更摘要和检查点历史。
 - 本地构建与测试输出。
 - 现有依赖清单和日志。
 
@@ -105,7 +105,7 @@ Builder 正式产出包括：
 9. Design Deviations
 10. Known Limitations
 11. Remaining Issues
-12. Git Checkpoint
+12. Workspace Checkpoint
 
 ## 9. 默认能力
 
@@ -127,9 +127,9 @@ shell.test
 shell.lint
 shell.format
 dependency.inspect
-git.inspect_status
-git.inspect_diff
-git.create_checkpoint
+project.inspect_changes
+checkpoint.inspect_history
+checkpoint.create
 artifact.create_draft
 artifact.update_builder_draft
 change_request.create
@@ -143,7 +143,6 @@ filesystem.modify_designer_artifact
 filesystem.modify_reviewer_artifact
 filesystem.modify_deployer_artifact
 filesystem.write_outside_project
-git.push
 remote.deploy
 system.modify
 credential.read
@@ -170,7 +169,7 @@ Builder 不能申请：
 - 执行远程部署。
 - 修改系统级安全策略。
 
-合法申请在所有工作流模式下都必须由用户弹窗批准。执行前自动建立 Git 检查点或文件快照。
+合法申请在所有工作流模式下都必须由用户弹窗批准。执行前自动建立内部检查点或文件快照。
 
 ## 11. 文件权限
 
@@ -206,7 +205,7 @@ Builder 不能申请：
 
 - 验证 Designer `HandoffPacket`。
 - 检查需求、设计和任务版本一致。
-- 检查工作区基线、Git 状态或快照。
+- 检查工作区基线、变更摘要和快照。
 - 检查任务涉及的默认工具权限。
 
 ### Step 2：任务规划
@@ -257,7 +256,7 @@ Builder 不能申请：
 
 ### Step 9：交接
 
-- 创建 Git 检查点或非 Git 快照。
+- 创建内部工作区检查点。
 - 满足当前审批模式要求。
 - 锁定 Builder 报告和代码版本引用。
 - 创建 Reviewer `HandoffPacket`。
@@ -300,7 +299,7 @@ Builder 发现上游问题时：
 - 构建报告完整且结果真实。
 - P2R 完成且无未处理 `BLOCK`。
 - Builder Quality Gate 通过。
-- Git 检查点或快照已经创建。
+- 工作区检查点已经创建。
 - Reviewer `HandoffPacket` 可以生成。
 
 ## 16. Primary 系统提示词模板

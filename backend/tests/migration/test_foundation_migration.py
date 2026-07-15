@@ -1,12 +1,34 @@
 from __future__ import annotations
 
+import importlib.util
 import os
 import sqlite3
 import subprocess
 import sys
 from pathlib import Path
+from types import ModuleType
+
+import pytest
+
+import agent_platform.infrastructure.database.schema as database_schema
+from agent_platform.infrastructure.database.schema import (
+    CURRENT_DATABASE_REVISION,
+    FOUNDATION_DATABASE_REVISION,
+    PROJECT_CONFLICT_DATABASE_REVISION,
+    REQUIRED_DATABASE_TABLES,
+)
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _load_foundation_module() -> ModuleType:
+    path = BACKEND_ROOT / "migrations/versions/0001_foundation.py"
+    spec = importlib.util.spec_from_file_location("foundation_0001", path)
+    if spec is None or spec.loader is None:
+        raise AssertionError("foundation migration could not be loaded")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _table_names(database_path: Path) -> set[str]:
@@ -31,6 +53,47 @@ def _run_alembic(*arguments: str, data_root: Path) -> None:
     )
 
 
+def test_foundation_migration_uses_immutable_foundation_revision() -> None:
+    assert _load_foundation_module().revision == FOUNDATION_DATABASE_REVISION
+
+
+def test_foundation_revision_does_not_change_when_current_revision_advances(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        database_schema,
+        "CURRENT_DATABASE_REVISION",
+        "0002_next_revision",
+    )
+
+    assert _load_foundation_module().revision == FOUNDATION_DATABASE_REVISION
+
+
+def test_current_database_revision_advances_to_project_conflicts() -> None:
+    assert CURRENT_DATABASE_REVISION == PROJECT_CONFLICT_DATABASE_REVISION
+
+
+def test_required_database_tables_are_shared() -> None:
+    assert REQUIRED_DATABASE_TABLES == frozenset(
+        {
+            "alembic_version",
+            "event_log",
+            "outbox_events",
+            "outbox_deliveries",
+            "local_audit_events",
+            "projects",
+            "workspaces",
+            "project_manifests",
+            "project_instructions",
+            "project_preflight_runs",
+            "project_checkpoints",
+            "checkpoint_files",
+            "external_changes",
+            "file_conflicts",
+        }
+    )
+
+
 def test_foundation_migration_upgrades_and_downgrades_cleanly(tmp_path: Path) -> None:
     data_root = tmp_path / "isolated-data-root"
     database_path = data_root / "data" / "agent.db"
@@ -42,6 +105,17 @@ def test_foundation_migration_upgrades_and_downgrades_cleanly(tmp_path: Path) ->
         "alembic_version",
         "event_log",
         "outbox_events",
+        "outbox_deliveries",
+        "local_audit_events",
+        "projects",
+        "workspaces",
+        "project_manifests",
+        "project_instructions",
+        "project_preflight_runs",
+        "project_checkpoints",
+        "checkpoint_files",
+        "external_changes",
+        "file_conflicts",
     }
 
     _run_alembic("downgrade", "base", data_root=data_root)

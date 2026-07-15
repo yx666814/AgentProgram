@@ -1,26 +1,20 @@
-from datetime import datetime
 from types import TracebackType
 from typing import Protocol, Self
+
+from agent_platform.domain.events.models import EventEnvelope
+from agent_platform.ports.projects import ProjectRepository
 
 
 class EventRepository(Protocol):
     async def append(
         self,
         *,
-        event_type: str,
+        envelope: EventEnvelope,
         aggregate_type: str,
         aggregate_id: str,
-        payload: dict[str, object],
-        occurred_at: datetime,
-        project_id: str | None = None,
-        workflow_id: str | None = None,
-        room_id: str | None = None,
-        task_id: str | None = None,
     ) -> int: ...
 
-
-class OutboxRepository(Protocol):
-    async def enqueue(self, event_id: int) -> str: ...
+    async def get(self, event_id: int) -> EventEnvelope | None: ...
 
 
 class UnitOfWork(Protocol):
@@ -28,7 +22,7 @@ class UnitOfWork(Protocol):
     def events(self) -> EventRepository: ...
 
     @property
-    def outbox(self) -> OutboxRepository: ...
+    def projects(self) -> ProjectRepository: ...
 
     async def __aenter__(self) -> Self: ...
 

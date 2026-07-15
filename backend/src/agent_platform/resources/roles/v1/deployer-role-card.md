@@ -41,7 +41,7 @@ Deployer 是五阶段工作流的第五层。第一版只负责部署准备、�
 
 - 连接服务器或云平台。
 - 执行真实部署。
-- 推送 Git、镜像、安装包或发布版本。
+- 推送远程仓库、镜像、安装包或发布版本。
 - 运行 Docker build、正式打包或部署验证。
 - 修改业务逻辑以适应部署。
 - 修复 Builder 代码缺陷。
@@ -141,8 +141,8 @@ filesystem.read_all_approved_artifacts
 filesystem.write_deployment_document
 filesystem.write_deployment_config
 filesystem.write_deployment_script
-git.inspect_status
-git.inspect_history_summary
+project.inspect_changes
+checkpoint.inspect_history
 artifact.create_draft
 artifact.update_deployer_draft
 change_request.create
@@ -157,8 +157,8 @@ shell.test
 docker.build
 package.build
 dependency.install
-git.commit
-git.push
+checkpoint.restore
+remote.publish
 network.request
 remote.deploy
 credential.read
@@ -173,7 +173,7 @@ Deployer 可以申请项目内额外只读文件或新的部署文件写入路�
 
 - 执行 Docker build、打包或部署验证。
 - 连接远程服务。
-- Git push 或发布。
+- 恢复检查点或执行远程发布。
 - 读取真实凭据。
 - 修改业务源代码、测试和上游正式产物。
 

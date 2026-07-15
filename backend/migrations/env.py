@@ -17,10 +17,22 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from agent_platform.infrastructure.database import models  # noqa: E402
+from agent_platform.infrastructure.database.backup import (  # noqa: E402
+    BackupReason,
+    create_verified_backup,
+)
 from agent_platform.infrastructure.database.base import Base  # noqa: E402
+from agent_platform.infrastructure.database.instance_lock import (  # noqa: E402
+    ApplicationInstanceLock,
+)
 from agent_platform.infrastructure.database.migration_rendering import render_item  # noqa: E402
 
-_MODEL_TABLES = (models.EventLogRow.__table__, models.OutboxEventRow.__table__)
+_MODEL_TABLES = (
+    models.EventLogRow.__table__,
+    models.OutboxEventRow.__table__,
+    models.OutboxDeliveryRow.__table__,
+    models.LocalAuditEventRow.__table__,
+)
 
 config = context.config
 
@@ -80,17 +92,29 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
 
+    data_root = _data_root()
     database_path.parent.mkdir(parents=True, exist_ok=True)
-    with connectable.connect() as connection:
-        context.configure(
-            connection=connection,
-            target_metadata=target_metadata,
-            render_item=render_item,
-        )
+    instance_lock = ApplicationInstanceLock.acquire(data_root / "runtime")
+    try:
+        if database_path.exists() and database_path.stat().st_size > 0:
+            create_verified_backup(
+                database_path,
+                data_root / "backups",
+                reason=BackupReason.PRE_MIGRATION,
+            )
+        with connectable.connect() as connection:
+            context.configure(
+                connection=connection,
+                target_metadata=target_metadata,
+                render_item=render_item,
+            )
 
-        with context.begin_transaction():
-            context.run_migrations()
-            _drop_empty_sqlite_version_table(connection)
+            with context.begin_transaction():
+                context.run_migrations()
+                _drop_empty_sqlite_version_table(connection)
+    finally:
+        connectable.dispose()
+        instance_lock.release()
 
 
 if context.is_offline_mode():

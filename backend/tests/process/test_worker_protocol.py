@@ -1,4 +1,5 @@
 import asyncio
+import json
 import sys
 import threading
 from collections.abc import Sequence
@@ -7,7 +8,7 @@ from typing import Any, cast
 
 import pytest
 
-from agent_platform.interfaces.ipc.framing import MAX_BODY_BYTES, FrameDecoder, encode_frame
+from agent_platform.interfaces.ipc.framing import FrameDecoder, encode_frame
 from agent_platform.interfaces.ipc.messages import IpcMessage
 from agent_platform.workers import main as worker_main
 
@@ -257,6 +258,56 @@ async def test_worker_rejects_project_mismatch_without_processing_message() -> N
     assert shutdown_response.correlation_id == "shutdown_after_mismatch"
 
 
+@pytest.mark.parametrize(
+    "messages",
+    [
+        [
+            IpcMessage(
+                message_id="skipped",
+                sequence=2,
+                project_id="project_1",
+                type="command",
+                payload={"name": "ping"},
+            )
+        ],
+        [
+            IpcMessage(
+                message_id="same-id",
+                sequence=1,
+                project_id="project_1",
+                type="command",
+                payload={"name": "ping"},
+            ),
+            IpcMessage(
+                message_id="same-id",
+                sequence=2,
+                project_id="project_1",
+                type="shutdown",
+            ),
+        ],
+    ],
+)
+async def test_worker_rejects_replay_window_violation(messages: list[IpcMessage]) -> None:
+    process = await _start_worker("--heartbeat-interval", "60")
+    payload = b"".join(encode_frame(message) for message in messages)
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(payload), timeout=5)
+    finally:
+        await _terminate_process(process)
+
+    assert process.returncode == 2
+    assert stderr.splitlines() == [b"worker protocol error: FramingError"]
+    assert b"same-id" not in stderr
+    assert b"skipped" not in stderr
+    decoded = _decode_complete_output(stdout)
+    if len(messages) == 1:
+        assert decoded == []
+    else:
+        assert len(decoded) == 1
+        assert decoded[0].type == "ack"
+        assert decoded[0].correlation_id == messages[0].message_id
+
+
 async def test_worker_invalid_frame_exits_two_without_leaking_input() -> None:
     marker = b"SECRET_INVALID_FRAME"
     body = b'{"secret":"' + marker + b'"}'
@@ -295,28 +346,22 @@ async def test_worker_partial_frame_at_eof_exits_two_without_leaking_input() -> 
     assert b"Content-Length" not in stderr
 
 
-async def test_worker_oversized_outbound_ack_exits_one_as_internal_error() -> None:
+async def test_worker_rejects_overlong_message_id_without_leaking_input() -> None:
     marker = "SECRET_OVERSIZED_ACK_"
     timestamp = datetime(2026, 1, 1, tzinfo=UTC)
-    template = IpcMessage(
-        message_id=marker,
-        sequence=1,
-        project_id="project_1",
-        type="command",
-        timestamp=timestamp,
-        payload={"name": "ping"},
-    )
-    template_body = encode_frame(template).partition(b"\r\n\r\n")[2]
-    ping = IpcMessage(
-        message_id=marker + ("x" * (MAX_BODY_BYTES - len(template_body))),
-        sequence=1,
-        project_id="project_1",
-        type="command",
-        timestamp=timestamp,
-        payload={"name": "ping"},
-    )
-    frame = encode_frame(ping)
-    assert len(frame.partition(b"\r\n\r\n")[2]) == MAX_BODY_BYTES
+    body = json.dumps(
+        {
+            "protocol_version": 1,
+            "message_id": marker + ("x" * 128),
+            "sequence": 1,
+            "project_id": "project_1",
+            "type": "command",
+            "timestamp": timestamp.isoformat().replace("+00:00", "Z"),
+            "payload": {"name": "ping"},
+        },
+        separators=(",", ":"),
+    ).encode()
+    frame = f"Content-Length: {len(body)}\r\nProtocol-Version: 1\r\n\r\n".encode() + body
 
     process = await _start_worker("--heartbeat-interval", "60")
     try:
@@ -324,9 +369,9 @@ async def test_worker_oversized_outbound_ack_exits_one_as_internal_error() -> No
     finally:
         await _terminate_process(process)
 
-    assert process.returncode == 1
+    assert process.returncode == 2
     assert stdout == b""
-    assert stderr.splitlines() == [b"worker internal error: FramingError"]
+    assert stderr.splitlines() == [b"worker protocol error: FramingError"]
     assert marker.encode() not in stderr
     assert b"Traceback" not in stderr
 
@@ -519,6 +564,18 @@ async def test_worker_rejects_invalid_project_id_without_echoing_value(project_i
     "args",
     [
         ("--project-id", "project_1", "--bogus", "SECRET_UNKNOWN_ARG"),
+        (
+            "--project-id",
+            "project_1",
+            "--ipc-replay-window-capacity",
+            "063",
+        ),
+        (
+            "--project-id",
+            "project_1",
+            "--ipc-replay-window-capacity",
+            "65537",
+        ),
         (),
     ],
 )

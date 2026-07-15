@@ -1,6 +1,8 @@
 import asyncio
 import contextvars
 import ctypes
+import hashlib
+import json
 import os
 import signal
 import sys
@@ -18,6 +20,7 @@ import pytest
 from tests.fixtures.atomic_job_chain_worker import atomic_job_chain_paths
 
 import agent_platform.infrastructure.workers.supervisor as supervisor_module
+from agent_platform.infrastructure.logging.configure import configure_logging
 from agent_platform.infrastructure.workers.supervisor import (
     WorkerError,
     WorkerHandle,
@@ -1754,6 +1757,44 @@ async def test_stderr_flood_does_not_block_ping_or_shutdown() -> None:
     finally:
         await supervisor.stop_all()
         await _terminate_process(handle.process)
+
+
+async def test_stderr_flood_persists_only_opaque_evidence(tmp_path: Path) -> None:
+    runtime = configure_logging(
+        tmp_path / "logs",
+        "INFO",
+        max_bytes=64 * 1024,
+        max_record_bytes=4096,
+        retained_file_count=2,
+        retention_age=timedelta(days=1),
+        queue_capacity=128,
+        shutdown_drain_timeout=timedelta(seconds=1),
+    )
+    supervisor = WorkerSupervisor(
+        heartbeat_timeout=timedelta(seconds=10),
+        response_timeout_seconds=2.0,
+    )
+    handle = await supervisor.start(
+        "project_stderr_evidence",
+        "tests.fixtures.stderr_flood_worker",
+    )
+    try:
+        assert (await supervisor.ping(handle.worker_id)).payload == {"status": "ok"}
+        await supervisor.stop(handle.worker_id)
+    finally:
+        await supervisor.stop_all()
+        await _terminate_process(handle.process)
+        runtime.close()
+
+    raw = b"x" * (2 * 1024 * 1024)
+    log_bytes = (tmp_path / "logs" / "backend.jsonl").read_bytes()
+    assert raw[:4096] not in log_bytes
+    events = [json.loads(line) for line in log_bytes.splitlines()]
+    opaque = next(event for event in events if event["event"] == "worker_stderr_opaque")
+    assert opaque["byte_count"] == len(raw)
+    assert opaque["sha256"] == hashlib.sha256(raw).hexdigest()
+    assert opaque["worker_id"] == handle.worker_id
+    assert opaque["project_id"] == "project_stderr_evidence"
 
 
 async def test_stop_on_broken_stdin_does_not_await_its_own_cleanup() -> None:

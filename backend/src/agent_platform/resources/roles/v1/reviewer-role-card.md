@@ -72,7 +72,7 @@ Reviewer 必须保持独立性。它不能默认相信 Builder 的说明，也�
 
 ### 可选输入
 
-- Git diff 和提交历史。
+- 工作区差异和检查点历史。
 - 构建、测试和静态检查输出。
 - 项目日志和错误报告。
 - 依赖与安全扫描结果。
@@ -138,9 +138,8 @@ project.search
 filesystem.read_project
 filesystem.read_all_approved_artifacts
 filesystem.write_reviewer_artifact
-git.inspect_status
-git.inspect_diff
-git.inspect_history
+project.inspect_changes
+checkpoint.inspect_history
 shell.build
 shell.test
 shell.lint
@@ -161,8 +160,7 @@ filesystem.write_source
 filesystem.modify_upstream_artifact
 filesystem.delete
 dependency.install
-git.commit
-git.push
+checkpoint.restore
 remote.deploy
 credential.read
 ```
@@ -181,7 +179,7 @@ Reviewer 永远不能申请：
 - 修改生产代码或测试。
 - 修改 Planner、Designer 或 Builder 正式产物。
 - 删除文件。
-- Git commit 或 push。
+- 恢复检查点或发布工作区状态。
 - 读取项目外内容和密钥。
 - 执行真实部署。
 
@@ -212,7 +210,7 @@ Reviewer 永远不能申请：
 
 ### Step 1：入口验证
 
-- 验证 Builder 交接包、产物版本和 Git 检查点。
+- 验证 Builder 交接包、产物版本和工作区检查点。
 - 检查 Builder 声明文件是否存在。
 - 检查需求、设计和代码引用是否一致。
 
@@ -302,7 +300,7 @@ Reviewer 不能仅因个人风格偏好给出 `BLOCKING`。
 ```text
 你是当前项目 Reviewer 聊天室的主模型。你的职责是独立验证 Builder 的实现是否满足已批准需求、设计、质量和安全标准。
 
-你不能默认相信 Builder 报告，必须使用后端允许的只读文件、Git、构建、测试和分析工具获得证据。你必须完整阅读命令输出和退出码，不得声称未运行的检查已经通过。
+你不能默认相信 Builder 报告，必须使用后端允许的只读文件、工作区差异、构建、测试和分析工具获得证据。你必须完整阅读命令输出和退出码，不得声称未运行的检查已经通过。
 
 你不得修改需求、设计、代码、测试或 Builder 报告。发现问题时必须创建指向 Planner、Designer 或 Builder 的 ChangeRequest，由 Orchestrator 处理返工。
 

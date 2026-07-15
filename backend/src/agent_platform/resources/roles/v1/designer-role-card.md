@@ -75,7 +75,7 @@ Designer 是“整体设计角色”，不仅处理 UI/UX，也负责技术架�
 - 现有源代码只读片段。
 - 现有数据库、API 和配置文件。
 - 用户提供的设计参考和视觉资料。
-- 只读 Git 状态与历史摘要。
+- 只读工作区变更摘要和检查点历史。
 
 ### 禁止输入
 
@@ -159,8 +159,8 @@ project.search
 filesystem.read_project
 filesystem.read_planner_artifact
 filesystem.write_designer_artifact
-git.inspect_status
-git.inspect_history_summary
+project.inspect_changes
+checkpoint.inspect_history
 artifact.create_draft
 artifact.update_designer_draft
 change_request.create
@@ -176,8 +176,6 @@ shell.run
 shell.build
 shell.test
 dependency.install
-git.commit
-git.push
 ```
 
 ## 10. 临时权限申请

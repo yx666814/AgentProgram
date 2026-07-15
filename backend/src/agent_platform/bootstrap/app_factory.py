@@ -3,12 +3,14 @@ from typing import cast
 from fastapi import Depends, FastAPI
 from starlette.types import ASGIApp
 
+from agent_platform import __version__
 from agent_platform.bootstrap.lifespan import build_lifespan
 from agent_platform.config.settings import Settings
 from agent_platform.interfaces.api.auth import require_session
 from agent_platform.interfaces.api.errors import register_error_handlers
 from agent_platform.interfaces.api.middleware import UnexpectedErrorMiddleware
 from agent_platform.interfaces.api.routes.health import router as health_router
+from agent_platform.interfaces.api.routes.projects import router as projects_router
 
 
 class AgentPlatformFastAPI(FastAPI):
@@ -30,13 +32,18 @@ class AgentPlatformFastAPI(FastAPI):
 def create_app(settings: Settings) -> FastAPI:
     app = AgentPlatformFastAPI(
         title="Agent Platform Backend",
-        version="0.1.0",
+        version=__version__,
         lifespan=build_lifespan(settings),
     )
     app.state.settings = settings
     app.add_middleware(UnexpectedErrorMiddleware)
     app.include_router(
         health_router,
+        prefix="/api/v1",
+        dependencies=[Depends(require_session)],
+    )
+    app.include_router(
+        projects_router,
         prefix="/api/v1",
         dependencies=[Depends(require_session)],
     )

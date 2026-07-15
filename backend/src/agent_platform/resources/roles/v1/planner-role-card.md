@@ -77,7 +77,7 @@ Planner 是需求策划者，不是架构设计者、编码实现者、独立审
 - 已有项目的文件结构摘要。
 - 已有需求、README、配置和接口文档。
 - 已有项目源代码的只读片段。
-- 只读 Git 状态、分支和历史摘要。
+- 只读工作区变更摘要和检查点历史。
 
 ### 禁止输入
 
@@ -133,8 +133,8 @@ project.search
 filesystem.read_project
 filesystem.read_reference
 filesystem.write_planner_artifact
-git.inspect_status
-git.inspect_history_summary
+project.inspect_changes
+checkpoint.inspect_history
 artifact.create_draft
 artifact.update_planner_draft
 change_request.create
@@ -149,8 +149,6 @@ shell.run
 shell.build
 shell.test
 dependency.install
-git.commit
-git.push
 network.request
 ```
 
@@ -184,7 +182,7 @@ Planner 可以为理解现有项目或验证需求可行性，申请临时修改
 - 当前项目内非敏感文件。
 - 用户明确提供的参考资料。
 - 当前 Planner 草稿和正式产物。
-- 项目结构与 Git 只读信息。
+- 项目结构、工作区变更和检查点摘要。
 
 ### 默认可写
 

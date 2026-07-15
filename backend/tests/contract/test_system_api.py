@@ -17,9 +17,10 @@ from starlette.responses import Response
 
 import agent_platform
 import agent_platform.bootstrap.lifespan as lifespan_module
+import agent_platform.interfaces.api.routes.health as health_module
 from agent_platform.bootstrap.app_factory import create_app
 from agent_platform.config.settings import Settings
-from agent_platform.domain.shared.errors import DomainError
+from agent_platform.domain.shared.errors import DomainError, ErrorCategory
 from agent_platform.interfaces.api.errors import PublicHttpError
 
 AUTHORIZATION = {"Authorization": "Bearer local-secret"}
@@ -245,6 +246,30 @@ async def test_readiness_uses_lifespan_database_and_disposes_it(tmp_path: Path) 
 
 
 @pytest.mark.asyncio
+async def test_readiness_uses_shared_current_database_revision(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _apply_foundation_migration(tmp_path)
+    monkeypatch.setattr(
+        health_module,
+        "CURRENT_DATABASE_REVISION",
+        "sentinel_revision",
+    )
+    app = create_app(_settings(tmp_path))
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            response = await client.get("/api/v1/readiness", headers=AUTHORIZATION)
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "readiness.unavailable"
+
+
+@pytest.mark.asyncio
 async def test_readiness_rejects_fresh_unmigrated_database(tmp_path: Path) -> None:
     app = create_app(_settings(tmp_path))
 
@@ -394,6 +419,55 @@ async def test_lifespan_disposal_resists_repeated_cancellation(
     assert dispose_completed.is_set()
     assert not hasattr(app.state, "database")
     assert not hasattr(app.state, "worker_supervisor")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("category", "expected_status"),
+    [
+        (ErrorCategory.INVALID_INPUT, 400),
+        (ErrorCategory.PERMISSION, 403),
+        (ErrorCategory.NOT_FOUND, 404),
+        (ErrorCategory.CONFLICT, 409),
+        (ErrorCategory.RATE_LIMITED, 429),
+        (ErrorCategory.UNAVAILABLE, 503),
+    ],
+)
+async def test_domain_error_categories_map_to_stable_http_statuses(
+    tmp_path: Path,
+    category: ErrorCategory,
+    expected_status: int,
+) -> None:
+    app = create_app(_settings(tmp_path))
+
+    async def raise_domain_error() -> None:
+        raise DomainError(
+            code="domain.test_error",
+            message="Domain operation failed",
+            details={"token": "domain-category-secret"},
+            retryable=True,
+            category=category,
+        )
+
+    app.add_api_route("/test/domain-error-category", raise_domain_error, methods=["GET"])
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="http://test",
+    ) as client:
+        response = await client.get("/test/domain-error-category")
+
+    assert response.status_code == expected_status
+    assert response.json() == {
+        "error": {
+            "code": "domain.test_error",
+            "message": "Domain operation failed",
+            "details": {"token": "***"},
+            "retryable": True,
+        }
+    }
+    assert "domain-category-secret" not in response.text
+    assert "category" not in response.json()["error"]
 
 
 @pytest.mark.asyncio

@@ -79,16 +79,20 @@ async def test_foundation_datetime_is_normalized_to_utc(tmp_path: Path) -> None:
         async with database.sessions.begin() as session:
             session.add(
                 EventLogRow(
+                    schema_version=1,
                     event_type="test.created",
+                    correlation_id="correlation_1",
+                    actor_type="system",
+                    source="backend",
                     aggregate_type="test",
                     aggregate_id="test-1",
                     payload={},
-                    created_at=local_datetime,
+                    occurred_at=local_datetime,
                 )
             )
 
         async with database.sessions() as session:
-            stored_datetime = (await session.execute(select(EventLogRow.created_at))).scalar_one()
+            stored_datetime = (await session.execute(select(EventLogRow.occurred_at))).scalar_one()
     finally:
         await database.dispose()
 
@@ -106,11 +110,15 @@ async def test_foundation_datetime_rejects_naive_values(tmp_path: Path) -> None:
         async with database.sessions() as session:
             session.add(
                 EventLogRow(
+                    schema_version=1,
                     event_type="test.created",
+                    correlation_id="correlation_1",
+                    actor_type="system",
+                    source="backend",
                     aggregate_type="test",
                     aggregate_id="test-1",
                     payload={},
-                    created_at=datetime(2026, 7, 11, 4, 30),
+                    occurred_at=datetime(2026, 7, 11, 4, 30),
                 )
             )
 
