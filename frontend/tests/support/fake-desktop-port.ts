@@ -21,6 +21,9 @@ export interface FakeDesktopPort extends DesktopPort {
     confirms: Array<{ title: string; message: string; detail: string; confirmLabel: string }>;
     queries: BackendRequest[];
     replays: number[];
+    secretDeletes: string[];
+    secretStores: Array<{ value: string; label: string }>;
+    diagnosticsExports: Array<{ workflowId?: string; afterEventId?: number }>;
   };
   emit(event: PersistedEvent): void;
 }
@@ -40,6 +43,9 @@ export function createFakeDesktopPort(options: FakeDesktopPortOptions = {}): Fak
     confirms: [],
     queries: [],
     replays: [],
+    secretDeletes: [],
+    secretStores: [],
+    diagnosticsExports: [],
   };
 
   return {
@@ -64,6 +70,28 @@ export function createFakeDesktopPort(options: FakeDesktopPortOptions = {}): Fak
       requestReplay(afterEventId: number): Promise<void> {
         calls.replays.push(afterEventId);
         return Promise.resolve();
+      },
+    },
+    secrets: {
+      store(input) {
+        calls.secretStores.push(input);
+        return Promise.resolve({
+          credentialRef: "credential.xingxie.00000000000000000000000000000000",
+          maskedHint:
+            input.value.length <= 4
+              ? "****"
+              : `${input.value.slice(0, 3)}****${input.value.slice(-4)}`,
+        });
+      },
+      delete(credentialRef) {
+        calls.secretDeletes.push(credentialRef);
+        return Promise.resolve();
+      },
+    },
+    diagnostics: {
+      export(input) {
+        calls.diagnosticsExports.push(input);
+        return Promise.resolve({ cancelled: false, path: "D:\\Temp\\xingxie-diagnostics.json" });
       },
     },
     selectDirectory() {

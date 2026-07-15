@@ -16,12 +16,29 @@ export interface BackendReply<T = unknown> {
   payload: T;
 }
 
+export interface StoredSecretReference {
+  credentialRef: string;
+  maskedHint: string;
+}
+
+export interface DiagnosticsExportInput {
+  workflowId?: string;
+  afterEventId?: number;
+}
+
 export interface DesktopPort {
   backend: {
     query<T>(request: BackendRequest): Promise<BackendReply<T>>;
     command<T>(request: BackendRequest): Promise<BackendReply<T>>;
     subscribe(listener: (event: PersistedEvent) => void): () => void;
     requestReplay(afterEventId: number): Promise<void>;
+  };
+  secrets: {
+    store(input: { value: string; label: string }): Promise<StoredSecretReference>;
+    delete(credentialRef: string): Promise<void>;
+  };
+  diagnostics: {
+    export(input: DiagnosticsExportInput): Promise<{ cancelled: boolean; path?: string }>;
   };
   selectDirectory(): Promise<{ cancelled: boolean; path?: string }>;
   showNativeConfirm(input: {

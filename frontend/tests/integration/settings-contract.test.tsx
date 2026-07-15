@@ -36,18 +36,18 @@ it("creates a real ModelProfile and waits for its persisted event", async () => 
   await user.type(screen.getByLabelText("配置名称"), "主模型");
   await user.type(screen.getByLabelText("模型 ID"), "gpt-primary");
   await user.type(screen.getByLabelText("Base URL"), "https://models.example/v1");
-  await user.type(screen.getByLabelText("凭证引用"), "vault:model.primary");
-  await user.type(screen.getByLabelText("脱敏提示"), "key-****42");
+  await user.type(screen.getByLabelText("API Key"), "sk-primary-0042");
   await user.click(screen.getByRole("button", { name: "创建模型配置" }));
 
   expect(await screen.findByText(/等待 model_profile\.created/)).toBeVisible();
   const command = port.calls.commands[0];
   expect(command?.payload).toMatchObject({
-    credential_ref: "vault:model.primary",
-    masked_hint: "key-****42",
+    credential_ref: "credential.xingxie.00000000000000000000000000000000",
+    masked_hint: "sk-****0042",
     provider: "openai_compatible",
   });
   expect(JSON.stringify(command?.payload)).not.toMatch(/api[_-]?key|secret_value|token/i);
+  expect(port.calls.secretStores).toEqual([{ value: "sk-primary-0042", label: "主模型" }]);
 
   const correlationId = (command?.payload as { correlation_id: string }).correlation_id;
   port.emit({

@@ -92,4 +92,7 @@ def test_project_exposes_backend_console_script() -> None:
     with pyproject_path.open("rb") as pyproject_file:
         pyproject = load(pyproject_file)
 
-    assert pyproject["project"]["scripts"] == {"agent-platform-backend": "agent_platform.main:main"}
+    assert pyproject["project"]["scripts"] == {
+        "agent-platform-backend": "agent_platform.main:main",
+        "agent-platform-desktop-sidecar": "agent_platform.desktop:main",
+    }

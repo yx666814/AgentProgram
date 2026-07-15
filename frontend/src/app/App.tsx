@@ -1,4 +1,4 @@
-import { BrowserRouter } from "react-router-dom";
+import { BrowserRouter, HashRouter } from "react-router-dom";
 
 import type { DesktopPort } from "../../electron/desktop-port";
 import { BackendProvider } from "../api/backend-context";
@@ -10,12 +10,13 @@ export interface AppProps {
 }
 
 export function App({ desktopPort }: AppProps) {
+  const Router = window.location.protocol === "file:" ? HashRouter : BrowserRouter;
   return (
     <ThemeProvider>
       <BackendProvider {...(desktopPort !== undefined ? { port: desktopPort } : {})}>
-        <BrowserRouter>
+        <Router>
           <AppRoutes />
-        </BrowserRouter>
+        </Router>
       </BackendProvider>
     </ThemeProvider>
   );

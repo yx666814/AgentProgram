@@ -28,7 +28,7 @@ function DiagnosticsUnavailable() {
     <section className="foundation-page" aria-labelledby="diagnostics-title">
       <div className="eyebrow">事件与诊断</div>
       <h1 id="diagnostics-title">桌面后端未连接</h1>
-      <p>连接后可读取 system/info、工作流事件重放、ToolCall 审计和恢复记录。诊断导出接口当前不存在。</p>
+      <p>连接后可读取 system/info、工作流事件重放、ToolCall 审计和恢复记录，并通过桌面桥导出脱敏诊断包。</p>
     </section>
   );
 }
@@ -60,10 +60,12 @@ function EventTable({ replay }: { replay: EventReplay }) {
 function ConnectedDiagnosticsPage({
   api,
   events,
+  exportDiagnostics,
   requestReplay,
 }: {
   api: BackendApi;
   events: EventReadModel;
+  exportDiagnostics: (input: { workflowId?: string; afterEventId?: number }) => Promise<{ cancelled: boolean; path?: string }>;
   requestReplay: (afterEventId: number) => Promise<void>;
 }) {
   const loadSummary = useCallback(async () => {
@@ -82,6 +84,7 @@ function ConnectedDiagnosticsPage({
   const [loadingAudit, setLoadingAudit] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   const loadAudit = async () => {
     const normalizedWorkflowId = workflowId.trim();
@@ -120,6 +123,39 @@ function ConnectedDiagnosticsPage({
     }
   };
 
+  const exportPackage = async () => {
+    const normalizedWorkflowId = workflowId.trim();
+    const normalizedCursor = Number(afterEventId);
+    if (normalizedWorkflowId !== "" && !/^workflow_[a-z0-9]+$/.test(normalizedWorkflowId)) {
+      setError(new Error("导出时 Workflow ID 必须为空或符合后端 workflow_[a-z0-9]+ 契约"));
+      return;
+    }
+    if (!Number.isSafeInteger(normalizedCursor) || normalizedCursor < 0) {
+      setError(new Error("导出游标必须是大于或等于 0 的整数"));
+      return;
+    }
+    setExporting(true);
+    setError(null);
+    try {
+      const input: { workflowId?: string; afterEventId?: number } = {
+        afterEventId: normalizedCursor,
+      };
+      if (normalizedWorkflowId !== "") {
+        input.workflowId = normalizedWorkflowId;
+      }
+      const result = await exportDiagnostics(input);
+      setNotice(
+        result.cancelled
+          ? "已取消诊断导出。"
+          : `脱敏诊断包已导出到 ${result.path ?? "用户选择的位置"}。`,
+      );
+    } catch (exportError) {
+      setError(exportError);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   if (resource.phase === "loading") {
     return <div className="page-loading">正在读取诊断摘要…</div>;
   }
@@ -155,7 +191,7 @@ function ConnectedDiagnosticsPage({
 
       <div className="diagnostics-lower-grid">
         <section className="data-panel" aria-labelledby="recovery-audit-title"><header><h2 id="recovery-audit-title">恢复记录</h2><span>{String(resource.data.recoveries.length)} 项</span></header><div className="recovery-audit-list">{resource.data.recoveries.map((record) => <article key={record.id}><header><strong>{record.status}</strong><span>{record.id}</span></header><dl><div><dt>项目</dt><dd>{record.project_id}</dd></div><div><dt>工作流</dt><dd>{record.workflow_id}</dd></div><div><dt>阶段运行</dt><dd>{record.stage_run_id ?? "未提供"}</dd></div><div><dt>中断任务</dt><dd>{String(record.interrupted_tasks)}</dd></div><div><dt>中断 ToolCall</dt><dd>{String(record.interrupted_tool_calls)}</dd></div><div><dt>检测时间</dt><dd>{new Date(record.detected_at).toLocaleString()}</dd></div></dl></article>)}</div>{resource.data.recoveries.length === 0 ? <p className="empty-copy">后端没有恢复记录。</p> : null}</section>
-        <section className="data-panel" aria-labelledby="diagnostic-capability-title"><header><h2 id="diagnostic-capability-title">诊断能力边界</h2><span>严格按现有接口</span></header><dl className="status-list"><div><dt>数据库版本</dt><dd>system/info 未提供</dd></div><div><dt>Worker / Tool 进程</dt><dd>无诊断查询</dd></div><div><dt>脱敏日志摘要</dt><dd>无日志查询</dd></div><div><dt>保留与清理策略</dt><dd>无配置查询</dd></div><div><dt>诊断导出</dt><dd>无 DiagnosticsExport operation</dd></div></dl><div className="unavailable-capability"><Button disabled disabledReason="后端未提供 DiagnosticsExport operation">导出诊断包</Button><p>源码、完整聊天、密钥和任意 ToolCall 结果默认不展示，也不会由 Renderer 自行打包。</p></div></section>
+        <section className="data-panel" aria-labelledby="diagnostic-capability-title"><header><h2 id="diagnostic-capability-title">诊断能力边界</h2><span>DesktopPort 脱敏导出</span></header><dl className="status-list"><div><dt>包含</dt><dd>版本、契约 Hash、健康/就绪、恢复记录、Sidecar 状态、脱敏日志摘要</dd></div><div><dt>可选工作流</dt><dd>安全投影的 Event 与 ToolCall 元数据</dd></div><div><dt>排除</dt><dd>源码、完整聊天、模型正文、密钥、Token、Tool 参数与结果正文</dd></div><div><dt>数据库版本</dt><dd>system/info 未提供，仍不推断</dd></div></dl><div className="unavailable-capability"><Button disabled={exporting} tone="primary" onClick={() => { void exportPackage(); }}>导出诊断包</Button><p>文件由 Electron Main 通过原生保存对话框写入；Renderer 不获得任意文件系统权限。</p></div></section>
       </div>
     </section>
   );
@@ -166,5 +202,5 @@ export function DiagnosticsPage() {
   if (api === null || port === null) {
     return <DiagnosticsUnavailable />;
   }
-  return <ConnectedDiagnosticsPage api={api} events={events} requestReplay={(afterEventId) => port.backend.requestReplay(afterEventId)} />;
+  return <ConnectedDiagnosticsPage api={api} events={events} exportDiagnostics={(input) => port.diagnostics.export(input)} requestReplay={(afterEventId) => port.backend.requestReplay(afterEventId)} />;
 }

@@ -33,6 +33,7 @@ a {
 }
 
 .window-titlebar {
+  -webkit-app-region: drag;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -40,6 +41,12 @@ a {
   color: var(--text-primary);
   font-size: 12px;
   user-select: none;
+}
+
+.window-titlebar button,
+.window-titlebar a,
+.window-titlebar input {
+  -webkit-app-region: no-drag;
 }
 
 .window-titlebar-context {

@@ -1,4 +1,6 @@
 import asyncio
+import logging
+import sys
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from datetime import timedelta
@@ -46,7 +48,11 @@ from agent_platform.infrastructure.model_runtime import (
     OpenAICompatibleAdapter,
     UnavailableSecretStore,
 )
-from agent_platform.infrastructure.redaction import SecretRegistration, register_known_secret
+from agent_platform.infrastructure.redaction import (
+    SecretRegistration,
+    redact_text,
+    register_known_secret,
+)
 from agent_platform.infrastructure.resources.role_cards import PackageRoleCardLoader
 from agent_platform.infrastructure.tooling import (
     AtomicFileTools,
@@ -56,8 +62,10 @@ from agent_platform.infrastructure.tooling import (
     ToolProcessRegistry,
 )
 from agent_platform.infrastructure.workers.supervisor import WorkerSupervisor
+from agent_platform.ports.secrets import SecretStore
 
 _CLEANUP_FAILURE_NOTE = "Additional cleanup failure occurred."
+_LOGGER = logging.getLogger(__name__)
 
 
 async def _probe_database(database: Database) -> None:
@@ -286,7 +294,10 @@ def _clear_resource_state(app: FastAPI) -> None:
 
 def build_lifespan(
     settings: Settings,
+    secret_store: SecretStore | None = None,
 ) -> Callable[[FastAPI], AbstractAsyncContextManager[None]]:
+    resolved_secret_store = secret_store or UnavailableSecretStore()
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         instance_lock: ApplicationInstanceLock | None = None
@@ -357,7 +368,6 @@ def build_lifespan(
                 event_stream_broker,
                 replay_batch_size=settings.websocket_replay_batch_size,
             )
-            secret_store = UnavailableSecretStore()
             agent_run_registry = AgentRunRegistry()
             tool_catalog = ToolCatalog()
             path_guard = PathGuard()
@@ -376,7 +386,7 @@ def build_lifespan(
             agent_runtime_service = AgentRuntimeService(
                 database,
                 settings,
-                secret_store,
+                resolved_secret_store,
                 (
                     OpenAICompatibleAdapter(timeout_seconds=settings.model_http_timeout_seconds),
                     AnthropicAdapter(timeout_seconds=settings.model_http_timeout_seconds),
@@ -450,7 +460,7 @@ def build_lifespan(
             app.state.tool_process_registry = tool_process_registry
             app.state.tool_service = tool_service
             app.state.governance_service = governance_service
-            app.state.secret_store = secret_store
+            app.state.secret_store = resolved_secret_store
             app.state.worker_supervisor = worker_supervisor
             app.state.worker_watchdog_task = worker_watchdog_task
             app.state.logging_runtime = logging_runtime
@@ -461,6 +471,12 @@ def build_lifespan(
                 app.state.outbox_dispatcher = outbox_dispatcher
                 app.state.outbox_dispatcher_task = outbox_dispatcher_task
         except BaseException as startup_error:
+            _LOGGER.exception("Application startup failed")
+            sys.stderr.write(
+                "AGENT_PLATFORM_STARTUP_ERROR "
+                f"{type(startup_error).__name__}: {redact_text(str(startup_error))}\n"
+            )
+            sys.stderr.flush()
             try:
                 await _await_cleanup_preserving_primary(
                     _shutdown_resources(

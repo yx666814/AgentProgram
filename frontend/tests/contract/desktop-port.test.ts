@@ -9,9 +9,11 @@ it("uses frozen OpenAPI operation ids", () => {
   expect(operation).toBe("health_api_v1_health_get");
 });
 
-it("exposes no session token, filesystem, shell or secret capability", () => {
+it("exposes no session token, filesystem, shell or secret read capability", () => {
   const keys: Array<keyof DesktopPort> = [
     "backend",
+    "secrets",
+    "diagnostics",
     "selectDirectory",
     "showNativeConfirm",
     "showSystemNotification",
@@ -20,5 +22,7 @@ it("exposes no session token, filesystem, shell or secret capability", () => {
     "requestWindowClose",
   ];
 
-  expect(keys.join(" ")).not.toMatch(/token|secret|shell|filesystem/i);
+  expect(keys.join(" ")).not.toMatch(/token|shell|filesystem/i);
+  const secretMethods: Array<keyof DesktopPort["secrets"]> = ["store", "delete"];
+  expect(secretMethods.join(" ")).not.toMatch(/read|resolve|get|list|export/i);
 });
