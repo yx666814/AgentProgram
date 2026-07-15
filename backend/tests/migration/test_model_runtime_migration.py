@@ -4,9 +4,17 @@ import subprocess
 import sys
 from pathlib import Path
 
-from agent_platform.infrastructure.database.schema import CURRENT_DATABASE_REVISION
+from agent_platform.infrastructure.database.schema import MODEL_RUNTIME_DATABASE_REVISION
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
+MODEL_TABLES = {
+    "model_profiles",
+    "room_model_assignments",
+    "agent_runs",
+    "model_calls",
+    "usage_records",
+    "conversation_summaries",
+}
 
 
 def _alembic(data_root: Path, *args: str) -> None:
@@ -31,18 +39,18 @@ def _tables(database_path: Path) -> set[str]:
         }
 
 
-def test_project_conflict_upgrade_and_downgrade(tmp_path: Path) -> None:
+def test_model_runtime_upgrade_and_downgrade(tmp_path: Path) -> None:
     data_root = tmp_path / "data-root"
     database_path = data_root / "data" / "agent.db"
-    _alembic(data_root, "upgrade", "0005_project_checkpoints")
+    _alembic(data_root, "upgrade", "0007_workflows")
     _alembic(data_root, "upgrade", "head")
 
-    assert {"external_changes", "file_conflicts"}.issubset(_tables(database_path))
+    assert MODEL_TABLES.issubset(_tables(database_path))
     with sqlite3.connect(database_path) as connection:
         revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()
-    assert revision == (CURRENT_DATABASE_REVISION,)
+    assert revision == (MODEL_RUNTIME_DATABASE_REVISION,)
 
-    _alembic(data_root, "downgrade", "0005_project_checkpoints")
+    _alembic(data_root, "downgrade", "0007_workflows")
 
-    assert not {"external_changes", "file_conflicts"}.intersection(_tables(database_path))
-    assert "project_checkpoints" in _tables(database_path)
+    assert not MODEL_TABLES.intersection(_tables(database_path))
+    assert "workflows" in _tables(database_path)

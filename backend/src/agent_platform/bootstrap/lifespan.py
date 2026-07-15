@@ -8,7 +8,21 @@ from fastapi import FastAPI
 from sqlalchemy import text
 
 from agent_platform.application.events.outbox_dispatcher import OutboxDispatcher
+from agent_platform.application.events.streaming import (
+    EventStreamBroker,
+    EventStreamService,
+    EventTicketStore,
+)
+from agent_platform.application.model_runtime import (
+    AgentRunRegistry,
+    AgentRuntimeService,
+    ContextBuilder,
+    ModelConfigurationService,
+    PromptComposer,
+    RollingSummaryBuilder,
+)
 from agent_platform.application.projects.service import ProjectApplicationService
+from agent_platform.application.workflows import WorkflowApplicationService
 from agent_platform.config.settings import Settings
 from agent_platform.domain.shared.ids import new_id
 from agent_platform.infrastructure.async_cleanup import await_cancellation_resistant
@@ -21,8 +35,16 @@ from agent_platform.infrastructure.database.local_audit import LocalAuditPublish
 from agent_platform.infrastructure.database.maintenance import DatabaseMaintenance
 from agent_platform.infrastructure.database.outbox_store import SqlAlchemyOutboxStore
 from agent_platform.infrastructure.database.session import Database, create_database
+from agent_platform.infrastructure.events import WebSocketEventPublisher
 from agent_platform.infrastructure.logging.configure import LoggingRuntime, configure_logging
+from agent_platform.infrastructure.model_runtime import (
+    AnthropicAdapter,
+    ModelOutputStore,
+    OpenAICompatibleAdapter,
+    UnavailableSecretStore,
+)
 from agent_platform.infrastructure.redaction import SecretRegistration, register_known_secret
+from agent_platform.infrastructure.resources.role_cards import PackageRoleCardLoader
 from agent_platform.infrastructure.workers.supervisor import WorkerSupervisor
 
 _CLEANUP_FAILURE_NOTE = "Additional cleanup failure occurred."
@@ -214,6 +236,14 @@ def _clear_resource_state(app: FastAPI) -> None:
         "worker_supervisor",
         "database",
         "project_service",
+        "workflow_service",
+        "event_stream_service",
+        "event_stream_broker",
+        "event_ticket_store",
+        "model_configuration_service",
+        "agent_runtime_service",
+        "agent_run_registry",
+        "secret_store",
         "logging_runtime",
         "database_maintenance",
         "database_maintenance_task",
@@ -284,6 +314,44 @@ def build_lifespan(
                 size_warning_bytes=settings.database_size_warning_bytes,
             )
             database_maintenance_task = asyncio.create_task(database_maintenance.run_forever())
+            event_stream_broker = EventStreamBroker(
+                queue_capacity=settings.websocket_subscriber_queue_capacity,
+                dedup_capacity=settings.websocket_publisher_dedup_capacity,
+            )
+            event_ticket_store = EventTicketStore(
+                timedelta(seconds=settings.websocket_ticket_ttl_seconds)
+            )
+            event_stream_service = EventStreamService(
+                database,
+                event_ticket_store,
+                event_stream_broker,
+                replay_batch_size=settings.websocket_replay_batch_size,
+            )
+            secret_store = UnavailableSecretStore()
+            agent_run_registry = AgentRunRegistry()
+            model_output_store = ModelOutputStore(
+                settings.model_output_root,
+                max_output_bytes=settings.model_output_max_bytes,
+            )
+            model_output_store.initialize()
+            model_configuration_service = ModelConfigurationService(database)
+            agent_runtime_service = AgentRuntimeService(
+                database,
+                settings,
+                secret_store,
+                (
+                    OpenAICompatibleAdapter(timeout_seconds=settings.model_http_timeout_seconds),
+                    AnthropicAdapter(timeout_seconds=settings.model_http_timeout_seconds),
+                ),
+                model_output_store,
+                PromptComposer(PackageRoleCardLoader()),
+                ContextBuilder(max_characters=settings.model_context_max_characters),
+                RollingSummaryBuilder(
+                    trigger_characters=settings.model_summary_trigger_characters,
+                    max_summary_characters=settings.model_summary_max_characters,
+                ),
+                agent_run_registry,
+            )
             if hasattr(database, "sessions"):
                 database_write_lock: asyncio.Lock | None = getattr(
                     database,
@@ -302,7 +370,10 @@ def build_lifespan(
                 )
                 outbox_dispatcher = OutboxDispatcher(
                     store=outbox_store,
-                    publishers=(LocalAuditPublisher(database.sessions, database_write_lock),),
+                    publishers=(
+                        LocalAuditPublisher(database.sessions, database_write_lock),
+                        WebSocketEventPublisher(event_stream_broker),
+                    ),
                     poll_interval_seconds=settings.outbox_poll_interval_seconds,
                     publish_timeout_seconds=settings.outbox_publish_timeout_seconds,
                     cleanup_interval_seconds=settings.outbox_cleanup_interval_seconds,
@@ -312,6 +383,14 @@ def build_lifespan(
                 outbox_dispatcher_task = asyncio.create_task(outbox_dispatcher.run())
             app.state.database = database
             app.state.project_service = ProjectApplicationService(database, settings)
+            app.state.workflow_service = WorkflowApplicationService(database)
+            app.state.event_stream_broker = event_stream_broker
+            app.state.event_ticket_store = event_ticket_store
+            app.state.event_stream_service = event_stream_service
+            app.state.model_configuration_service = model_configuration_service
+            app.state.agent_runtime_service = agent_runtime_service
+            app.state.agent_run_registry = agent_run_registry
+            app.state.secret_store = secret_store
             app.state.worker_supervisor = worker_supervisor
             app.state.worker_watchdog_task = worker_watchdog_task
             app.state.logging_runtime = logging_runtime

@@ -2,6 +2,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     CheckConstraint,
     ForeignKey,
     Index,
@@ -300,3 +301,325 @@ class FileConflictRow(Base):
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     resolved_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+
+class WorkflowRow(Base):
+    __tablename__ = "workflows"
+    __table_args__ = (
+        CheckConstraint("version > 0", name="ck_workflows_version_positive"),
+        Index("ix_workflows_project_updated", "project_id", "updated_at"),
+        Index("ix_workflows_project_status", "project_id", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    current_stage: Mapped[str] = mapped_column(String(20), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class StageRunRow(Base):
+    __tablename__ = "stage_runs"
+    __table_args__ = (
+        UniqueConstraint(
+            "workflow_id",
+            "stage",
+            "attempt",
+            name="uq_stage_runs_workflow_stage_attempt",
+        ),
+        CheckConstraint("attempt > 0", name="ck_stage_runs_attempt_positive"),
+        CheckConstraint("version > 0", name="ck_stage_runs_version_positive"),
+        Index("ix_stage_runs_current", "workflow_id", "stage", "attempt"),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workflow_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("workflows.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    stage: Mapped[str] = mapped_column(String(20), nullable=False)
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False)
+    state: Mapped[str] = mapped_column(String(32), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+
+class RoomRow(Base):
+    __tablename__ = "rooms"
+    __table_args__ = (
+        UniqueConstraint("stage_run_id", name="uq_rooms_stage_run_id"),
+        CheckConstraint("next_sequence > 0", name="ck_rooms_next_sequence_positive"),
+        CheckConstraint("version > 0", name="ck_rooms_version_positive"),
+        Index("ix_rooms_workflow_stage", "workflow_id", "stage"),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workflow_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("workflows.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    stage_run_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("stage_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    stage: Mapped[str] = mapped_column(String(20), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    next_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class MessageRow(Base):
+    __tablename__ = "messages"
+    __table_args__ = (
+        UniqueConstraint("room_id", "sequence", name="uq_messages_room_sequence"),
+        CheckConstraint("sequence > 0", name="ck_messages_sequence_positive"),
+        Index("ix_messages_room_sequence", "room_id", "sequence"),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    room_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("rooms.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    author: Mapped[str] = mapped_column(String(20), nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    correction_of_id: Mapped[str | None] = mapped_column(
+        String(80),
+        ForeignKey("messages.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class WorkflowTaskRow(Base):
+    __tablename__ = "tasks"
+    __table_args__ = (
+        CheckConstraint("version > 0", name="ck_tasks_version_positive"),
+        Index("ix_tasks_workflow_queue", "workflow_id", "status", "created_at"),
+        Index("ix_tasks_room_created", "room_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workflow_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("workflows.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    stage_run_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("stage_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    room_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("rooms.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    payload: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+    result: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+
+class ModelProfileRow(Base):
+    __tablename__ = "model_profiles"
+    __table_args__ = (
+        CheckConstraint("version > 0", name="ck_model_profiles_version_positive"),
+        Index("ix_model_profiles_provider_enabled", "provider", "enabled"),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    base_url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    model: Mapped[str] = mapped_column(String(200), nullable=False)
+    credential_ref: Mapped[str] = mapped_column(String(128), nullable=False)
+    masked_hint: Mapped[str] = mapped_column(String(40), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class RoomModelAssignmentRow(Base):
+    __tablename__ = "room_model_assignments"
+    __table_args__ = (CheckConstraint("version > 0", name="ck_assignments_version_positive"),)
+
+    room_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("rooms.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    primary_profile_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("model_profiles.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    reviewer_a_profile_id: Mapped[str | None] = mapped_column(
+        String(80),
+        ForeignKey("model_profiles.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    reviewer_b_profile_id: Mapped[str | None] = mapped_column(
+        String(80),
+        ForeignKey("model_profiles.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class AgentRunRow(Base):
+    __tablename__ = "agent_runs"
+    __table_args__ = (
+        UniqueConstraint("room_id", "request_key", name="uq_agent_runs_room_request"),
+        CheckConstraint("version > 0", name="ck_agent_runs_version_positive"),
+        CheckConstraint(
+            "final_output_bytes IS NULL OR final_output_bytes >= 0",
+            name="ck_agent_runs_output_bytes_nonnegative",
+        ),
+        Index("ix_agent_runs_room_created", "room_id", "created_at"),
+        Index("ix_agent_runs_workflow_status", "workflow_id", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workflow_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("workflows.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    room_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("rooms.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    request_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    formal: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    final_output_ref: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    final_output_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    final_output_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+
+class ModelCallRow(Base):
+    __tablename__ = "model_calls"
+    __table_args__ = (
+        UniqueConstraint(
+            "agent_run_id",
+            "role",
+            "phase",
+            name="uq_model_calls_run_role_phase",
+        ),
+        CheckConstraint("version > 0", name="ck_model_calls_version_positive"),
+        CheckConstraint(
+            "output_bytes IS NULL OR output_bytes >= 0",
+            name="ck_model_calls_output_bytes_nonnegative",
+        ),
+        Index("ix_model_calls_run", "agent_run_id", "started_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    agent_run_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("agent_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    profile_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("model_profiles.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    phase: Mapped[str] = mapped_column(String(10), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    prompt_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    output_ref: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    output_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    output_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+
+class UsageRecordRow(Base):
+    __tablename__ = "usage_records"
+    __table_args__ = (
+        CheckConstraint("input_tokens >= 0", name="ck_usage_input_nonnegative"),
+        CheckConstraint("output_tokens >= 0", name="ck_usage_output_nonnegative"),
+        CheckConstraint("total_tokens >= 0", name="ck_usage_total_nonnegative"),
+        CheckConstraint(
+            "total_tokens = input_tokens + output_tokens",
+            name="ck_usage_total_matches",
+        ),
+    )
+
+    model_call_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("model_calls.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class ConversationSummaryRow(Base):
+    __tablename__ = "conversation_summaries"
+    __table_args__ = (
+        UniqueConstraint(
+            "room_id",
+            "through_sequence",
+            name="uq_summaries_room_sequence",
+        ),
+        CheckConstraint("through_sequence > 0", name="ck_summaries_sequence_positive"),
+        Index("ix_summaries_room_latest", "room_id", "through_sequence"),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    room_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("rooms.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    through_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)

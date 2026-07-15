@@ -87,6 +87,17 @@ class Settings(BaseSettings):
     outbox_delivered_retention_days: int = Field(default=30, ge=1, le=3650)
     outbox_cleanup_batch_size: int = Field(default=100, ge=1, le=10_000)
     outbox_recovery_batch_size: int = Field(default=100, ge=1, le=10_000)
+    websocket_ticket_ttl_seconds: float = Field(default=30.0, ge=1.0, le=300.0)
+    websocket_replay_batch_size: int = Field(default=500, ge=1, le=10_000)
+    websocket_subscriber_queue_capacity: int = Field(default=256, ge=1, le=10_000)
+    websocket_publisher_dedup_capacity: int = Field(default=4096, ge=1, le=100_000)
+    model_output_max_bytes: int = Field(default=100_000, ge=1024, le=100_000)
+    model_context_max_characters: int = Field(default=200_000, ge=10_000, le=2_000_000)
+    model_summary_trigger_characters: int = Field(default=120_000, ge=1000, le=1_000_000)
+    model_summary_max_characters: int = Field(default=50_000, ge=500, le=200_000)
+    model_max_output_tokens: int = Field(default=8192, ge=1, le=1_000_000)
+    model_http_timeout_seconds: float = Field(default=120.0, ge=1.0, le=3600.0)
+    project_instruction_max_bytes: int = Field(default=1024 * 1024, ge=1024, le=16 * 1024 * 1024)
 
     @field_validator("session_token")
     @classmethod
@@ -112,6 +123,8 @@ class Settings(BaseSettings):
         "outbox_backoff_max_seconds",
         "outbox_shutdown_drain_seconds",
         "outbox_cleanup_interval_seconds",
+        "websocket_ticket_ttl_seconds",
+        "model_http_timeout_seconds",
     )
     @classmethod
     def validate_positive_finite_interval(cls, value: float) -> float:
@@ -138,6 +151,10 @@ class Settings(BaseSettings):
             raise ValueError("outbox backoff base must not exceed maximum")
         if self.checkpoint_max_file_bytes > self.checkpoint_max_total_bytes:
             raise ValueError("checkpoint file limit must not exceed total limit")
+        if self.model_summary_max_characters >= self.model_summary_trigger_characters:
+            raise ValueError("model summary maximum must be below its trigger")
+        if self.model_summary_trigger_characters >= self.model_context_max_characters:
+            raise ValueError("model summary trigger must be below the context limit")
         return self
 
     @property
@@ -165,6 +182,10 @@ class Settings(BaseSettings):
         return self.data_root / "runtime"
 
     @property
+    def model_output_root(self) -> Path:
+        return self.data_root / "model-outputs"
+
+    @property
     def log_file_retention_age(self) -> timedelta:
         return timedelta(days=self.log_file_retention_days)
 
@@ -187,5 +208,6 @@ class Settings(BaseSettings):
             self.log_root,
             self.backup_root,
             self.runtime_root,
+            self.model_output_root,
         ):
             path.mkdir(parents=True, exist_ok=True)

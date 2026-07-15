@@ -14,7 +14,7 @@ import agent_platform.infrastructure.database.schema as database_schema
 from agent_platform.infrastructure.database.schema import (
     CURRENT_DATABASE_REVISION,
     FOUNDATION_DATABASE_REVISION,
-    PROJECT_CONFLICT_DATABASE_REVISION,
+    MODEL_RUNTIME_DATABASE_REVISION,
     REQUIRED_DATABASE_TABLES,
 )
 
@@ -69,8 +69,8 @@ def test_foundation_revision_does_not_change_when_current_revision_advances(
     assert _load_foundation_module().revision == FOUNDATION_DATABASE_REVISION
 
 
-def test_current_database_revision_advances_to_project_conflicts() -> None:
-    assert CURRENT_DATABASE_REVISION == PROJECT_CONFLICT_DATABASE_REVISION
+def test_current_database_revision_advances_to_model_runtime() -> None:
+    assert CURRENT_DATABASE_REVISION == MODEL_RUNTIME_DATABASE_REVISION
 
 
 def test_required_database_tables_are_shared() -> None:
@@ -90,6 +90,17 @@ def test_required_database_tables_are_shared() -> None:
             "checkpoint_files",
             "external_changes",
             "file_conflicts",
+            "workflows",
+            "stage_runs",
+            "rooms",
+            "messages",
+            "tasks",
+            "model_profiles",
+            "room_model_assignments",
+            "agent_runs",
+            "model_calls",
+            "usage_records",
+            "conversation_summaries",
         }
     )
 
@@ -116,6 +127,17 @@ def test_foundation_migration_upgrades_and_downgrades_cleanly(tmp_path: Path) ->
         "checkpoint_files",
         "external_changes",
         "file_conflicts",
+        "workflows",
+        "stage_runs",
+        "rooms",
+        "messages",
+        "tasks",
+        "model_profiles",
+        "room_model_assignments",
+        "agent_runs",
+        "model_calls",
+        "usage_records",
+        "conversation_summaries",
     }
 
     _run_alembic("downgrade", "base", data_root=data_root)
