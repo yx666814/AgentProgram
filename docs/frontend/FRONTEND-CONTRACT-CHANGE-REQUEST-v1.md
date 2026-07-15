@@ -6,7 +6,7 @@
 >
 > 后端基线：`origin/master` at `057e2612489c99a3b93cc103d911e2530362dc38`
 >
-> 适用范围：`FRONTEND-IMPLEMENTATION-EXECUTION-v1.md` Task 1 Steps 2–6、Task 2 DesktopPort 后端类型
+> 适用范围：`FRONTEND-IMPLEMENTATION-EXECUTION-v1.md` Task 1 Steps 2–6、Task 2 DesktopPort 后端类型、Task 4 Event Cursor
 
 ## 1. 变更原因
 
@@ -60,6 +60,14 @@ Task 2 的 `DesktopPort` 同步采用实际冻结类型：
   `event_id`，不创建不存在的 `sequence` 字段。
 - command 返回真实 HTTP payload 和状态码，不伪造统一 `{ accepted: true }`；业务完成仍等待持久化事件。
 - Renderer 仍无法取得 Token、SecretStore、Node 文件系统、Shell 或原始 IPC。
+
+Task 4 的事件游标同步采用实际 Stage 3/5 replay contract：
+
+- `event_id` 是持久化事件的全局单调 ID，也是 replay 的 `after_event_id` 游标。
+- 单个工作流接收到的 `event_id` 不保证连续，因此不得用 `last + 1` 推断丢事件。
+- `event_id <= lastAppliedEventId` 作为重复或旧事件忽略；更大的 ID 按后端顺序应用。
+- 重连只调用 `DesktopPort.backend.requestReplay(lastAppliedEventId)`，Renderer 不读取 WebSocket Ticket。
+- 实际 `EventEnvelope` 没有 `sequence` 和 `idempotency_key` 字段，前端不得自行添加第二份事件协议。
 
 ## 4. 不变约束
 
