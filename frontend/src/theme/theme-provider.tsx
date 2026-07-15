@@ -23,8 +23,16 @@ export interface ThemeProviderProps extends PropsWithChildren {
   initialTheme?: Theme;
 }
 
-export function ThemeProvider({ children, initialTheme = "light" }: ThemeProviderProps) {
-  const [theme, setTheme] = useState<Theme>(initialTheme);
+function preferredTheme(): Theme {
+  return typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
+}
+
+export function ThemeProvider({ children, initialTheme }: ThemeProviderProps) {
+  const [theme, setTheme] = useState<Theme>(() => initialTheme ?? preferredTheme());
 
   useLayoutEffect(() => {
     document.documentElement.dataset.theme = theme;
