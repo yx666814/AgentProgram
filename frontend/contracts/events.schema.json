@@ -1,0 +1,232 @@
+{
+  "backendCommit": "b61ba13620cf90c4367826f3b4e717e5dbf4cc09",
+  "backendTree": "4fbc4ba8f708898c654997f59cc416e939a56b0f",
+  "envelopeSchema": {
+    "$defs": {
+      "ActorRef": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Id"
+          },
+          "type": {
+            "$ref": "#/$defs/ActorType"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "title": "ActorRef",
+        "type": "object"
+      },
+      "ActorType": {
+        "enum": [
+          "system",
+          "user",
+          "worker",
+          "model",
+          "tool"
+        ],
+        "title": "ActorType",
+        "type": "string"
+      },
+      "EventSource": {
+        "enum": [
+          "backend",
+          "desktop",
+          "worker",
+          "model",
+          "tool"
+        ],
+        "title": "EventSource",
+        "type": "string"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "actor": {
+        "$ref": "#/$defs/ActorRef"
+      },
+      "causation_id": {
+        "anyOf": [
+          {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Causation Id"
+      },
+      "correlation_id": {
+        "maxLength": 120,
+        "minLength": 1,
+        "title": "Correlation Id",
+        "type": "string"
+      },
+      "event_id": {
+        "anyOf": [
+          {
+            "exclusiveMinimum": 0,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Event Id"
+      },
+      "event_type": {
+        "maxLength": 120,
+        "pattern": "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+$",
+        "title": "Event Type",
+        "type": "string"
+      },
+      "occurred_at": {
+        "format": "date-time",
+        "title": "Occurred At",
+        "type": "string"
+      },
+      "payload": {
+        "additionalProperties": true,
+        "title": "Payload",
+        "type": "object"
+      },
+      "project_id": {
+        "anyOf": [
+          {
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Project Id"
+      },
+      "room_id": {
+        "anyOf": [
+          {
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Room Id"
+      },
+      "schema_version": {
+        "const": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      },
+      "source": {
+        "$ref": "#/$defs/EventSource"
+      },
+      "task_id": {
+        "anyOf": [
+          {
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Task Id"
+      },
+      "workflow_id": {
+        "anyOf": [
+          {
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Workflow Id"
+      }
+    },
+    "required": [
+      "schema_version",
+      "event_type",
+      "correlation_id",
+      "actor",
+      "source",
+      "occurred_at",
+      "payload"
+    ],
+    "title": "EventEnvelope",
+    "type": "object"
+  },
+  "eventTypes": [
+    "agent_run.completed",
+    "agent_run.created",
+    "agent_run.started",
+    "approval.decided",
+    "artifact.version_created",
+    "capability.decided",
+    "capability.requested",
+    "change_request.created",
+    "external_change.scanned",
+    "file_conflict.resolved",
+    "handoff.created",
+    "message.appended",
+    "model_profile.created",
+    "model_profile.updated",
+    "project.checkpoint_created",
+    "project.checkpoint_restored",
+    "project.closed",
+    "project.created",
+    "project.opened",
+    "project.preflight_completed",
+    "project.restore_planned",
+    "quality_gate.evaluated",
+    "recovery.detected",
+    "recovery.discarded",
+    "recovery.resumed",
+    "room_model_assignment.updated",
+    "stage_run.reopened",
+    "stage_run.transitioned",
+    "task.cancelled",
+    "task.completed",
+    "task.queued",
+    "task.started",
+    "tool.completed",
+    "tool.started",
+    "workflow.abandond",
+    "workflow.created",
+    "workflow.mode_changed",
+    "workflow.paused",
+    "workflow.resumed",
+    "workflow.started",
+    "workflow.stopped"
+  ],
+  "generator": "frontend/scripts/export-backend-contracts.py",
+  "schemaVersion": 1
+}

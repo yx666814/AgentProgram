@@ -1,0 +1,1034 @@
+{
+  "backendCommit": "b61ba13620cf90c4367826f3b4e717e5dbf4cc09",
+  "backendTree": "4fbc4ba8f708898c654997f59cc416e939a56b0f",
+  "capabilities": {
+    "append_message_api_v1_rooms__room_id__messages_post": {
+      "method": "POST",
+      "path": "/api/v1/rooms/{room_id}/messages"
+    },
+    "assign_room_models_api_v1_rooms__room_id__model_assignment_put": {
+      "method": "PUT",
+      "path": "/api/v1/rooms/{room_id}/model-assignment"
+    },
+    "cancel_agent_run_api_v1_agent_runs__run_id__cancel_post": {
+      "method": "POST",
+      "path": "/api/v1/agent-runs/{run_id}/cancel"
+    },
+    "cancel_task_api_v1_tasks__task_id__cancel_post": {
+      "method": "POST",
+      "path": "/api/v1/tasks/{task_id}/cancel"
+    },
+    "cancel_tool_call_api_v1_tool_calls__call_id__cancel_post": {
+      "method": "POST",
+      "path": "/api/v1/tool-calls/{call_id}/cancel"
+    },
+    "close_project_api_v1_projects__project_id__close_post": {
+      "method": "POST",
+      "path": "/api/v1/projects/{project_id}/close"
+    },
+    "complete_task_api_v1_tasks__task_id__complete_post": {
+      "method": "POST",
+      "path": "/api/v1/tasks/{task_id}/complete"
+    },
+    "control_workflow_api_v1_workflows__workflow_id___action__post": {
+      "method": "POST",
+      "path": "/api/v1/workflows/{workflow_id}/{action}"
+    },
+    "create_agent_run_api_v1_rooms__room_id__agent_runs_post": {
+      "method": "POST",
+      "path": "/api/v1/rooms/{room_id}/agent-runs"
+    },
+    "create_artifact_version_api_v1_stage_runs__stage_run_id__artifact_versions_post": {
+      "method": "POST",
+      "path": "/api/v1/stage-runs/{stage_run_id}/artifact-versions"
+    },
+    "create_change_request_api_v1_workflows__workflow_id__change_requests_post": {
+      "method": "POST",
+      "path": "/api/v1/workflows/{workflow_id}/change-requests"
+    },
+    "create_checkpoint_api_v1_projects__project_id__checkpoints_post": {
+      "method": "POST",
+      "path": "/api/v1/projects/{project_id}/checkpoints"
+    },
+    "create_profile_api_v1_model_profiles_post": {
+      "method": "POST",
+      "path": "/api/v1/model-profiles"
+    },
+    "create_project_api_v1_projects_post": {
+      "method": "POST",
+      "path": "/api/v1/projects"
+    },
+    "create_workflow_api_v1_projects__project_id__workflows_post": {
+      "method": "POST",
+      "path": "/api/v1/projects/{project_id}/workflows"
+    },
+    "decide_capability_api_v1_capability_requests__request_id__decision_post": {
+      "method": "POST",
+      "path": "/api/v1/capability-requests/{request_id}/decision"
+    },
+    "decide_gate_approval_api_v1_approvals__approval_id__decision_post": {
+      "method": "POST",
+      "path": "/api/v1/approvals/{approval_id}/decision"
+    },
+    "desktop_control_api_v1_system_control_get": {
+      "method": "GET",
+      "path": "/api/v1/system/control"
+    },
+    "enqueue_task_api_v1_rooms__room_id__tasks_post": {
+      "method": "POST",
+      "path": "/api/v1/rooms/{room_id}/tasks"
+    },
+    "evaluate_quality_gate_api_v1_stage_runs__stage_run_id__quality_gates_post": {
+      "method": "POST",
+      "path": "/api/v1/stage-runs/{stage_run_id}/quality-gates"
+    },
+    "execute_tool_api_v1_tasks__task_id__tool_calls_post": {
+      "method": "POST",
+      "path": "/api/v1/tasks/{task_id}/tool-calls"
+    },
+    "get_agent_run_api_v1_agent_runs__run_id__get": {
+      "method": "GET",
+      "path": "/api/v1/agent-runs/{run_id}"
+    },
+    "get_agent_run_output_api_v1_agent_runs__run_id__output_get": {
+      "method": "GET",
+      "path": "/api/v1/agent-runs/{run_id}/output"
+    },
+    "get_preflight_api_v1_projects__project_id__preflight_get": {
+      "method": "GET",
+      "path": "/api/v1/projects/{project_id}/preflight"
+    },
+    "get_profile_api_v1_model_profiles__profile_id__get": {
+      "method": "GET",
+      "path": "/api/v1/model-profiles/{profile_id}"
+    },
+    "get_project_api_v1_projects__project_id__get": {
+      "method": "GET",
+      "path": "/api/v1/projects/{project_id}"
+    },
+    "get_room_assignment_api_v1_rooms__room_id__model_assignment_get": {
+      "method": "GET",
+      "path": "/api/v1/rooms/{room_id}/model-assignment"
+    },
+    "get_workflow_api_v1_workflows__workflow_id__get": {
+      "method": "GET",
+      "path": "/api/v1/workflows/{workflow_id}"
+    },
+    "health_api_v1_health_get": {
+      "method": "GET",
+      "path": "/api/v1/health"
+    },
+    "issue_event_ticket_api_v1_events_tickets_post": {
+      "method": "POST",
+      "path": "/api/v1/events/tickets"
+    },
+    "list_agent_runs_api_v1_rooms__room_id__agent_runs_get": {
+      "method": "GET",
+      "path": "/api/v1/rooms/{room_id}/agent-runs"
+    },
+    "list_approvals_api_v1_workflows__workflow_id__approvals_get": {
+      "method": "GET",
+      "path": "/api/v1/workflows/{workflow_id}/approvals"
+    },
+    "list_artifacts_api_v1_workflows__workflow_id__artifacts_get": {
+      "method": "GET",
+      "path": "/api/v1/workflows/{workflow_id}/artifacts"
+    },
+    "list_capability_requests_api_v1_workflows__workflow_id__capability_requests_get": {
+      "method": "GET",
+      "path": "/api/v1/workflows/{workflow_id}/capability-requests"
+    },
+    "list_change_requests_api_v1_workflows__workflow_id__change_requests_get": {
+      "method": "GET",
+      "path": "/api/v1/workflows/{workflow_id}/change-requests"
+    },
+    "list_checkpoints_api_v1_projects__project_id__checkpoints_get": {
+      "method": "GET",
+      "path": "/api/v1/projects/{project_id}/checkpoints"
+    },
+    "list_conflicts_api_v1_projects__project_id__conflicts_get": {
+      "method": "GET",
+      "path": "/api/v1/projects/{project_id}/conflicts"
+    },
+    "list_external_changes_api_v1_projects__project_id__external_changes_get": {
+      "method": "GET",
+      "path": "/api/v1/projects/{project_id}/external-changes"
+    },
+    "list_handoffs_api_v1_workflows__workflow_id__handoffs_get": {
+      "method": "GET",
+      "path": "/api/v1/workflows/{workflow_id}/handoffs"
+    },
+    "list_messages_api_v1_rooms__room_id__messages_get": {
+      "method": "GET",
+      "path": "/api/v1/rooms/{room_id}/messages"
+    },
+    "list_profiles_api_v1_model_profiles_get": {
+      "method": "GET",
+      "path": "/api/v1/model-profiles"
+    },
+    "list_projects_api_v1_projects_get": {
+      "method": "GET",
+      "path": "/api/v1/projects"
+    },
+    "list_quality_gates_api_v1_workflows__workflow_id__quality_gates_get": {
+      "method": "GET",
+      "path": "/api/v1/workflows/{workflow_id}/quality-gates"
+    },
+    "list_recoveries_api_v1_recovery_get": {
+      "method": "GET",
+      "path": "/api/v1/recovery"
+    },
+    "list_stage_history_api_v1_workflows__workflow_id__stage_runs_history_get": {
+      "method": "GET",
+      "path": "/api/v1/workflows/{workflow_id}/stage-runs/history"
+    },
+    "list_tasks_api_v1_workflows__workflow_id__tasks_get": {
+      "method": "GET",
+      "path": "/api/v1/workflows/{workflow_id}/tasks"
+    },
+    "list_tool_calls_api_v1_workflows__workflow_id__tool_calls_get": {
+      "method": "GET",
+      "path": "/api/v1/workflows/{workflow_id}/tool-calls"
+    },
+    "list_tool_catalog_api_v1_tools_catalog_get": {
+      "method": "GET",
+      "path": "/api/v1/tools/catalog"
+    },
+    "list_workflows_api_v1_projects__project_id__workflows_get": {
+      "method": "GET",
+      "path": "/api/v1/projects/{project_id}/workflows"
+    },
+    "open_project_api_v1_projects__project_id__open_post": {
+      "method": "POST",
+      "path": "/api/v1/projects/{project_id}/open"
+    },
+    "plan_restore_api_v1_projects__project_id__checkpoints__checkpoint_id__restore_plan_post": {
+      "method": "POST",
+      "path": "/api/v1/projects/{project_id}/checkpoints/{checkpoint_id}/restore-plan"
+    },
+    "readiness_api_v1_readiness_get": {
+      "method": "GET",
+      "path": "/api/v1/readiness"
+    },
+    "reopen_stage_api_v1_workflows__workflow_id__stages__stage__reopen_post": {
+      "method": "POST",
+      "path": "/api/v1/workflows/{workflow_id}/stages/{stage}/reopen"
+    },
+    "replay_events_api_v1_events_replay_get": {
+      "method": "GET",
+      "path": "/api/v1/events/replay"
+    },
+    "request_capability_api_v1_tasks__task_id__capability_requests_post": {
+      "method": "POST",
+      "path": "/api/v1/tasks/{task_id}/capability-requests"
+    },
+    "request_shutdown_api_v1_system_shutdown_post": {
+      "method": "POST",
+      "path": "/api/v1/system/shutdown"
+    },
+    "resolve_conflict_api_v1_projects__project_id__conflicts__conflict_id__resolve_post": {
+      "method": "POST",
+      "path": "/api/v1/projects/{project_id}/conflicts/{conflict_id}/resolve"
+    },
+    "resolve_recovery_api_v1_recovery__recovery_id___action__post": {
+      "method": "POST",
+      "path": "/api/v1/recovery/{recovery_id}/{action}"
+    },
+    "restore_checkpoint_api_v1_projects__project_id__checkpoints__checkpoint_id__restore_post": {
+      "method": "POST",
+      "path": "/api/v1/projects/{project_id}/checkpoints/{checkpoint_id}/restore"
+    },
+    "run_preflight_api_v1_projects__project_id__preflight_post": {
+      "method": "POST",
+      "path": "/api/v1/projects/{project_id}/preflight"
+    },
+    "scan_external_changes_api_v1_projects__project_id__external_changes_scan_post": {
+      "method": "POST",
+      "path": "/api/v1/projects/{project_id}/external-changes/scan"
+    },
+    "set_workflow_mode_api_v1_workflows__workflow_id__mode_post": {
+      "method": "POST",
+      "path": "/api/v1/workflows/{workflow_id}/mode"
+    },
+    "start_task_api_v1_tasks__task_id__start_post": {
+      "method": "POST",
+      "path": "/api/v1/tasks/{task_id}/start"
+    },
+    "start_workflow_api_v1_workflows__workflow_id__start_post": {
+      "method": "POST",
+      "path": "/api/v1/workflows/{workflow_id}/start"
+    },
+    "stream_agent_run_api_v1_agent_runs__run_id__stream_post": {
+      "method": "POST",
+      "path": "/api/v1/agent-runs/{run_id}/stream"
+    },
+    "system_info_api_v1_system_info_get": {
+      "method": "GET",
+      "path": "/api/v1/system/info"
+    },
+    "transition_stage_api_v1_workflows__workflow_id__stages__stage__transition_post": {
+      "method": "POST",
+      "path": "/api/v1/workflows/{workflow_id}/stages/{stage}/transition"
+    },
+    "update_profile_api_v1_model_profiles__profile_id__put": {
+      "method": "PUT",
+      "path": "/api/v1/model-profiles/{profile_id}"
+    }
+  },
+  "errorCodes": [
+    "agent_run.already_executing",
+    "agent_run.assignment_required",
+    "agent_run.cancelled",
+    "agent_run.dual_review_required",
+    "agent_run.idempotency_conflict",
+    "agent_run.internal_failure",
+    "agent_run.not_cancellable",
+    "agent_run.not_pending",
+    "agent_run.output_not_available",
+    "agent_run.profile_unavailable",
+    "agent_run.reviewer_failed",
+    "agent_run.room_busy",
+    "agent_run.room_not_active",
+    "approval.already_decided",
+    "approval.gate_failed",
+    "approval.stage_not_waiting",
+    "approval.wrong_kind",
+    "artifact.not_lockable",
+    "artifact.path_conflict",
+    "artifact.path_out_of_scope",
+    "artifact.stage_not_current",
+    "artifact.stage_not_producing",
+    "auth.invalid_session",
+    "backend.instance_unavailable",
+    "capability_request.already_available",
+    "capability_request.already_decided",
+    "capability_request.forbidden",
+    "capability_request.idempotency_conflict",
+    "capability_request.task_not_running",
+    "checkpoint.blob_corrupt",
+    "checkpoint.manifest_unsafe",
+    "checkpoint.not_found",
+    "checkpoint.restore_path_unsafe",
+    "checkpoint.restore_verification_failed",
+    "context.project_instruction_unavailable",
+    "context.room_isolation_violation",
+    "database.integrity_failed",
+    "external_change.not_found",
+    "file_conflict.agent_checkpoint_required",
+    "file_conflict.agent_version_mismatch",
+    "file_conflict.already_resolved",
+    "file_conflict.merged_hash_required",
+    "file_conflict.merged_version_changed",
+    "file_conflict.not_found",
+    "file_conflict.user_version_changed",
+    "file_conflict.version_conflict",
+    "http.error",
+    "internal.error",
+    "message.sequence_conflict",
+    "model.call_cancelled",
+    "model.output_empty",
+    "model.output_reference_invalid",
+    "model.output_storage_unavailable",
+    "model.output_storage_unsafe",
+    "model.output_too_large",
+    "model.output_unavailable",
+    "model.output_verification_failed",
+    "model_profile.disabled",
+    "project.closed",
+    "project.manifest_not_found",
+    "project.manifest_version_conflict",
+    "project.not_found",
+    "project.preflight_not_found",
+    "project.version_conflict",
+    "project.workspace_already_initialized",
+    "project.workspace_already_registered",
+    "quality_gate.already_resolved",
+    "quality_gate.artifact_changed",
+    "quality_gate.artifact_not_lockable",
+    "quality_gate.stage_not_checking",
+    "quality_gate.test_command_missing",
+    "readiness.unavailable",
+    "recovery.already_resolved",
+    "recovery.workflow_not_interrupted",
+    "request.validation_failed",
+    "role_card.resource_invalid",
+    "role_card.version_not_found",
+    "room.archived",
+    "room.consultation_only",
+    "room.discussion_only",
+    "room.not_writable",
+    "stage_contract.capability_not_requestable",
+    "stage_run.agent_run_active",
+    "stage_run.invalid_transition",
+    "stage_run.locked",
+    "stage_run.not_current",
+    "stage_run.reopen_requires_completion",
+    "task.not_cancellable",
+    "task.not_queued",
+    "task.not_running",
+    "task.queue_order_conflict",
+    "task.room_not_active",
+    "task.workflow_busy",
+    "tool.approval_required",
+    "tool.cancelled",
+    "tool.capability_forbidden",
+    "tool.command_not_approved",
+    "tool.command_timed_out",
+    "tool.directory_create_failed",
+    "tool.execution_unavailable",
+    "tool.file_changed",
+    "tool.file_delete_failed",
+    "tool.file_read_failed",
+    "tool.file_verification_failed",
+    "tool.file_version_conflict",
+    "tool.file_write_failed",
+    "tool.idempotency_conflict",
+    "tool.metadata_protected",
+    "tool.not_cancellable",
+    "tool.not_registered",
+    "tool.output_limit_exceeded",
+    "tool.path_excluded",
+    "tool.path_not_approved",
+    "tool.path_out_of_scope",
+    "tool.path_wrong_kind",
+    "tool.stage_not_executing",
+    "tool.task_not_running",
+    "usage.already_recorded",
+    "workflow.active_exists",
+    "workflow.already_started",
+    "workflow.not_found",
+    "workflow.not_pausable",
+    "workflow.not_resumable",
+    "workflow.not_running",
+    "workflow.project_not_ready",
+    "workflow.terminal",
+    "workflow.version_conflict"
+  ],
+  "generator": "frontend/scripts/export-backend-contracts.py",
+  "roleCards": [
+    {
+      "content_hash": "5c61e9b0b27e29bfe9976b367f66afa0df7ad932a6e9c4fa60370378bd289c36",
+      "display_name": "策划者",
+      "language": "zh-CN",
+      "role_card_version": "1.0.0",
+      "role_id": "planner",
+      "schema_version": 1,
+      "stage_id": "planner"
+    },
+    {
+      "content_hash": "9d3e4e689f8da70a2b44d8da37cba5d8cbceecab2fe7675feb4a19389b790b76",
+      "display_name": "设计者",
+      "language": "zh-CN",
+      "role_card_version": "1.0.0",
+      "role_id": "designer",
+      "schema_version": 1,
+      "stage_id": "designer"
+    },
+    {
+      "content_hash": "b6c91e7fe48a39d301bc1249b08ea8a5ce3f782a0c03f12b1b096b44263fe70e",
+      "display_name": "构建者",
+      "language": "zh-CN",
+      "role_card_version": "1.0.0",
+      "role_id": "builder",
+      "schema_version": 1,
+      "stage_id": "builder"
+    },
+    {
+      "content_hash": "3f93a04f609d4c863671dc5bc10b2550cad9822ce19126a5e5cada6ab4d73b70",
+      "display_name": "审查者",
+      "language": "zh-CN",
+      "role_card_version": "1.0.0",
+      "role_id": "reviewer",
+      "schema_version": 1,
+      "stage_id": "reviewer"
+    },
+    {
+      "content_hash": "cb57f441a05c40796a09f3776841a60147f7b5c6faa75b6dce49f9c1059d0f71",
+      "display_name": "部署准备者",
+      "language": "zh-CN",
+      "role_card_version": "1.0.0",
+      "role_id": "deployer",
+      "schema_version": 1,
+      "stage_id": "deployer"
+    }
+  ],
+  "schemaVersion": 1,
+  "stageContracts": [
+    {
+      "contract_version": "1.0.0",
+      "default_capabilities": [
+        "project.inspect_structure",
+        "project.search",
+        "filesystem.read_project",
+        "filesystem.read_reference",
+        "filesystem.write_planner_artifact",
+        "project.inspect_changes",
+        "checkpoint.inspect_history",
+        "artifact.create_draft",
+        "artifact.update_planner_draft",
+        "change_request.create"
+      ],
+      "forbidden_capabilities": [
+        "filesystem.write_source",
+        "filesystem.delete",
+        "filesystem.write_outside_project",
+        "shell.build",
+        "dependency.install",
+        "network.request",
+        "remote.deploy",
+        "credential.read",
+        "system.modify"
+      ],
+      "initial_state": "ready",
+      "path_policy": {
+        "delete_scopes": [
+          "stage_draft"
+        ],
+        "read_scopes": [
+          "project_non_sensitive",
+          "planner_artifact",
+          "stage_draft"
+        ],
+        "write_scopes": [
+          "planner_artifact",
+          "stage_draft"
+        ]
+      },
+      "requestable_capabilities": [
+        "filesystem.read_project",
+        "filesystem.write_planner_artifact",
+        "shell.run",
+        "shell.test"
+      ],
+      "role_card_version": "1.0.0",
+      "schema_version": 1,
+      "stage": "planner"
+    },
+    {
+      "contract_version": "1.0.0",
+      "default_capabilities": [
+        "project.inspect_structure",
+        "project.search",
+        "filesystem.read_project",
+        "filesystem.read_planner_artifact",
+        "filesystem.write_designer_artifact",
+        "project.inspect_changes",
+        "checkpoint.inspect_history",
+        "artifact.create_draft",
+        "artifact.update_designer_draft",
+        "change_request.create"
+      ],
+      "forbidden_capabilities": [
+        "filesystem.write_source",
+        "filesystem.modify_planner_artifact",
+        "filesystem.delete",
+        "filesystem.write_outside_project",
+        "shell.build",
+        "dependency.install",
+        "network.request",
+        "remote.deploy",
+        "credential.read",
+        "system.modify"
+      ],
+      "initial_state": "locked",
+      "path_policy": {
+        "delete_scopes": [
+          "stage_draft"
+        ],
+        "read_scopes": [
+          "project_non_sensitive",
+          "planner_artifact",
+          "designer_artifact",
+          "stage_draft"
+        ],
+        "write_scopes": [
+          "designer_artifact",
+          "stage_draft"
+        ]
+      },
+      "requestable_capabilities": [
+        "filesystem.read_project",
+        "filesystem.write_designer_artifact",
+        "shell.run",
+        "shell.test",
+        "dependency.inspect"
+      ],
+      "role_card_version": "1.0.0",
+      "schema_version": 1,
+      "stage": "designer"
+    },
+    {
+      "contract_version": "1.0.0",
+      "default_capabilities": [
+        "project.inspect_structure",
+        "project.search",
+        "filesystem.read_project",
+        "filesystem.write_source",
+        "filesystem.write_test",
+        "filesystem.write_build_config",
+        "filesystem.write_builder_artifact",
+        "filesystem.create_directory",
+        "filesystem.delete_generated_or_builder_owned",
+        "shell.run_project_command",
+        "shell.build",
+        "shell.test",
+        "shell.lint",
+        "shell.format",
+        "dependency.inspect",
+        "project.inspect_changes",
+        "checkpoint.inspect_history",
+        "checkpoint.create",
+        "artifact.create_draft",
+        "artifact.update_builder_draft",
+        "change_request.create"
+      ],
+      "forbidden_capabilities": [
+        "filesystem.modify_planner_artifact",
+        "filesystem.modify_designer_artifact",
+        "filesystem.modify_reviewer_artifact",
+        "filesystem.modify_deployer_artifact",
+        "filesystem.write_outside_project",
+        "remote.deploy",
+        "system.modify",
+        "credential.read"
+      ],
+      "initial_state": "locked",
+      "path_policy": {
+        "delete_scopes": [
+          "builder_artifact",
+          "project_source",
+          "project_test",
+          "generated",
+          "stage_draft"
+        ],
+        "read_scopes": [
+          "project_non_sensitive",
+          "planner_artifact",
+          "designer_artifact",
+          "builder_artifact",
+          "project_source",
+          "project_test",
+          "project_build_config",
+          "generated",
+          "stage_draft"
+        ],
+        "write_scopes": [
+          "builder_artifact",
+          "project_source",
+          "project_test",
+          "project_build_config",
+          "generated",
+          "stage_draft"
+        ]
+      },
+      "requestable_capabilities": [
+        "filesystem.write_source",
+        "filesystem.write_test",
+        "filesystem.write_build_config",
+        "filesystem.write_builder_artifact",
+        "shell.run_project_command",
+        "dependency.install"
+      ],
+      "role_card_version": "1.0.0",
+      "schema_version": 1,
+      "stage": "builder"
+    },
+    {
+      "contract_version": "1.0.0",
+      "default_capabilities": [
+        "project.inspect_structure",
+        "project.search",
+        "filesystem.read_project",
+        "filesystem.read_all_approved_artifacts",
+        "filesystem.write_reviewer_artifact",
+        "project.inspect_changes",
+        "checkpoint.inspect_history",
+        "shell.build",
+        "shell.test",
+        "shell.lint",
+        "shell.typecheck",
+        "shell.security_scan",
+        "log.read_project",
+        "artifact.create_draft",
+        "artifact.update_reviewer_draft",
+        "change_request.create"
+      ],
+      "forbidden_capabilities": [
+        "filesystem.write_source",
+        "filesystem.modify_upstream_artifact",
+        "filesystem.delete",
+        "dependency.install",
+        "checkpoint.restore",
+        "remote.deploy",
+        "credential.read"
+      ],
+      "initial_state": "locked",
+      "path_policy": {
+        "delete_scopes": [
+          "stage_draft"
+        ],
+        "read_scopes": [
+          "project_non_sensitive",
+          "planner_artifact",
+          "designer_artifact",
+          "builder_artifact",
+          "reviewer_artifact",
+          "project_source",
+          "project_test",
+          "project_build_config",
+          "generated",
+          "stage_draft"
+        ],
+        "write_scopes": [
+          "reviewer_artifact",
+          "stage_draft"
+        ]
+      },
+      "requestable_capabilities": [
+        "filesystem.read_project",
+        "shell.build",
+        "shell.test",
+        "shell.lint",
+        "shell.typecheck",
+        "shell.security_scan",
+        "shell.run_project_command",
+        "log.read_project"
+      ],
+      "role_card_version": "1.0.0",
+      "schema_version": 1,
+      "stage": "reviewer"
+    },
+    {
+      "contract_version": "1.0.0",
+      "default_capabilities": [
+        "project.inspect_structure",
+        "project.search",
+        "filesystem.read_project",
+        "filesystem.read_all_approved_artifacts",
+        "filesystem.write_deployment_document",
+        "filesystem.write_deployment_config",
+        "filesystem.write_deployment_script",
+        "project.inspect_changes",
+        "checkpoint.inspect_history",
+        "artifact.create_draft",
+        "artifact.update_deployer_draft",
+        "change_request.create"
+      ],
+      "forbidden_capabilities": [
+        "shell.run",
+        "shell.build",
+        "shell.test",
+        "docker.build",
+        "package.build",
+        "dependency.install",
+        "checkpoint.restore",
+        "remote.publish",
+        "network.request",
+        "remote.deploy",
+        "credential.read",
+        "filesystem.write_source"
+      ],
+      "initial_state": "locked",
+      "path_policy": {
+        "delete_scopes": [
+          "stage_draft"
+        ],
+        "read_scopes": [
+          "project_non_sensitive",
+          "planner_artifact",
+          "designer_artifact",
+          "builder_artifact",
+          "reviewer_artifact",
+          "deployer_artifact",
+          "project_source",
+          "project_test",
+          "project_build_config",
+          "generated",
+          "deployment_config",
+          "deployment_script",
+          "stage_draft"
+        ],
+        "write_scopes": [
+          "deployer_artifact",
+          "deployment_config",
+          "deployment_script",
+          "stage_draft"
+        ]
+      },
+      "requestable_capabilities": [
+        "filesystem.read_project",
+        "filesystem.write_deployment_document",
+        "filesystem.write_deployment_config",
+        "filesystem.write_deployment_script"
+      ],
+      "role_card_version": "1.0.0",
+      "schema_version": 1,
+      "stage": "deployer"
+    }
+  ],
+  "stageRunStates": [
+    "locked",
+    "ready",
+    "discussing",
+    "producing",
+    "p2r_reviewing",
+    "quality_checking",
+    "waiting_approval",
+    "handoff_ready",
+    "completed",
+    "warning_blocked",
+    "needs_fix",
+    "external_conflict",
+    "interrupted",
+    "failed",
+    "cancelled",
+    "abandoned"
+  ],
+  "stages": [
+    "planner",
+    "designer",
+    "builder",
+    "reviewer",
+    "deployer"
+  ],
+  "tools": [
+    {
+      "allowed_scopes": [],
+      "capability": "filesystem.create_directory",
+      "max_timeout_seconds": 900,
+      "mutating": true,
+      "name": "filesystem.create_directory",
+      "operation": "create_directory"
+    },
+    {
+      "allowed_scopes": [
+        "generated",
+        "builder_artifact",
+        "stage_draft"
+      ],
+      "capability": "filesystem.delete_generated_or_builder_owned",
+      "max_timeout_seconds": 900,
+      "mutating": true,
+      "name": "filesystem.delete_generated_or_builder_owned",
+      "operation": "delete"
+    },
+    {
+      "allowed_scopes": [
+        "planner_artifact",
+        "designer_artifact",
+        "builder_artifact",
+        "reviewer_artifact",
+        "deployer_artifact"
+      ],
+      "capability": "filesystem.read_all_approved_artifacts",
+      "max_timeout_seconds": 900,
+      "mutating": false,
+      "name": "filesystem.read_all_approved_artifacts",
+      "operation": "read"
+    },
+    {
+      "allowed_scopes": [
+        "planner_artifact"
+      ],
+      "capability": "filesystem.read_planner_artifact",
+      "max_timeout_seconds": 900,
+      "mutating": false,
+      "name": "filesystem.read_planner_artifact",
+      "operation": "read"
+    },
+    {
+      "allowed_scopes": [],
+      "capability": "filesystem.read_project",
+      "max_timeout_seconds": 900,
+      "mutating": false,
+      "name": "filesystem.read_project",
+      "operation": "read"
+    },
+    {
+      "allowed_scopes": [
+        "project_build_config"
+      ],
+      "capability": "filesystem.write_build_config",
+      "max_timeout_seconds": 900,
+      "mutating": true,
+      "name": "filesystem.write_build_config",
+      "operation": "write"
+    },
+    {
+      "allowed_scopes": [
+        "builder_artifact"
+      ],
+      "capability": "filesystem.write_builder_artifact",
+      "max_timeout_seconds": 900,
+      "mutating": true,
+      "name": "filesystem.write_builder_artifact",
+      "operation": "write"
+    },
+    {
+      "allowed_scopes": [
+        "deployment_config"
+      ],
+      "capability": "filesystem.write_deployment_config",
+      "max_timeout_seconds": 900,
+      "mutating": true,
+      "name": "filesystem.write_deployment_config",
+      "operation": "write"
+    },
+    {
+      "allowed_scopes": [
+        "deployer_artifact"
+      ],
+      "capability": "filesystem.write_deployment_document",
+      "max_timeout_seconds": 900,
+      "mutating": true,
+      "name": "filesystem.write_deployment_document",
+      "operation": "write"
+    },
+    {
+      "allowed_scopes": [
+        "deployment_script"
+      ],
+      "capability": "filesystem.write_deployment_script",
+      "max_timeout_seconds": 900,
+      "mutating": true,
+      "name": "filesystem.write_deployment_script",
+      "operation": "write"
+    },
+    {
+      "allowed_scopes": [
+        "designer_artifact"
+      ],
+      "capability": "filesystem.write_designer_artifact",
+      "max_timeout_seconds": 900,
+      "mutating": true,
+      "name": "filesystem.write_designer_artifact",
+      "operation": "write"
+    },
+    {
+      "allowed_scopes": [
+        "planner_artifact"
+      ],
+      "capability": "filesystem.write_planner_artifact",
+      "max_timeout_seconds": 900,
+      "mutating": true,
+      "name": "filesystem.write_planner_artifact",
+      "operation": "write"
+    },
+    {
+      "allowed_scopes": [
+        "reviewer_artifact"
+      ],
+      "capability": "filesystem.write_reviewer_artifact",
+      "max_timeout_seconds": 900,
+      "mutating": true,
+      "name": "filesystem.write_reviewer_artifact",
+      "operation": "write"
+    },
+    {
+      "allowed_scopes": [
+        "project_source"
+      ],
+      "capability": "filesystem.write_source",
+      "max_timeout_seconds": 900,
+      "mutating": true,
+      "name": "filesystem.write_source",
+      "operation": "write"
+    },
+    {
+      "allowed_scopes": [
+        "project_test"
+      ],
+      "capability": "filesystem.write_test",
+      "max_timeout_seconds": 900,
+      "mutating": true,
+      "name": "filesystem.write_test",
+      "operation": "write"
+    },
+    {
+      "allowed_scopes": [],
+      "capability": "shell.build",
+      "max_timeout_seconds": 3600,
+      "mutating": false,
+      "name": "shell.build",
+      "operation": "command"
+    },
+    {
+      "allowed_scopes": [],
+      "capability": "shell.format",
+      "max_timeout_seconds": 1800,
+      "mutating": true,
+      "name": "shell.format",
+      "operation": "command"
+    },
+    {
+      "allowed_scopes": [],
+      "capability": "shell.lint",
+      "max_timeout_seconds": 1800,
+      "mutating": false,
+      "name": "shell.lint",
+      "operation": "command"
+    },
+    {
+      "allowed_scopes": [],
+      "capability": "shell.run",
+      "max_timeout_seconds": 900,
+      "mutating": false,
+      "name": "shell.run",
+      "operation": "command"
+    },
+    {
+      "allowed_scopes": [],
+      "capability": "shell.run_project_command",
+      "max_timeout_seconds": 1800,
+      "mutating": false,
+      "name": "shell.run_project_command",
+      "operation": "command"
+    },
+    {
+      "allowed_scopes": [],
+      "capability": "shell.security_scan",
+      "max_timeout_seconds": 3600,
+      "mutating": false,
+      "name": "shell.security_scan",
+      "operation": "command"
+    },
+    {
+      "allowed_scopes": [],
+      "capability": "shell.test",
+      "max_timeout_seconds": 3600,
+      "mutating": false,
+      "name": "shell.test",
+      "operation": "command"
+    },
+    {
+      "allowed_scopes": [],
+      "capability": "shell.typecheck",
+      "max_timeout_seconds": 1800,
+      "mutating": false,
+      "name": "shell.typecheck",
+      "operation": "command"
+    }
+  ],
+  "websocket": {
+    "eventMessageType": "event",
+    "path": "/api/v1/events/ws",
+    "readyMessageType": "ready",
+    "replayOperationId": "replay_events_api_v1_events_replay_get",
+    "schemaVersion": 1,
+    "ticketOperationId": "issue_event_ticket_api_v1_events_tickets_post"
+  },
+  "workflowStates": [
+    "created",
+    "preflight_failed",
+    "running",
+    "waiting_user",
+    "warning_blocked",
+    "paused",
+    "external_conflict",
+    "interrupted",
+    "failed",
+    "stopped",
+    "abandoned",
+    "completed"
+  ]
+}

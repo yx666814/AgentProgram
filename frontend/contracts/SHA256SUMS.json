@@ -1,0 +1,11 @@
+{
+  "backendCommit": "b61ba13620cf90c4367826f3b4e717e5dbf4cc09",
+  "backendTree": "4fbc4ba8f708898c654997f59cc416e939a56b0f",
+  "files": {
+    "capabilities.json": "06763ACAC061D95E9BBFAC309A403D5092C4C8E676982353EBE9F30FCF2BA03A",
+    "events.schema.json": "B9247299BB0BC6CEE21D922E54B1B077DD725A46C7B517EC6E15D04642E0E959",
+    "openapi.json": "F36C8E44C74059D039F67ED0FE321161039600FF80FD9F8A64EEA83556AA7D95"
+  },
+  "generator": "frontend/scripts/export-backend-contracts.py",
+  "schemaVersion": 1
+}
