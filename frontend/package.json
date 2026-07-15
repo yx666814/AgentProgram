@@ -6,6 +6,7 @@
   "scripts": {
     "contracts:export": "uv run --project ../backend python scripts/export-backend-contracts.py",
     "contracts:verify": "node scripts/verify-contract-coverage.mjs",
+    "dev": "vite",
     "generate:api": "node scripts/generate-api-types.mjs",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
@@ -19,7 +20,8 @@
   },
   "dependencies": {
     "react": "19.2.7",
-    "react-dom": "19.2.7"
+    "react-dom": "19.2.7",
+    "react-router-dom": "7.18.1"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
