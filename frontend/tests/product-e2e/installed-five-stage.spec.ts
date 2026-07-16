@@ -292,6 +292,12 @@ async function launchInstalled(
     ],
     timeout: 60_000,
   });
+  let desktopStderr = "";
+  const stderr = app.process().stderr;
+  stderr?.setEncoding("utf8");
+  stderr?.on("data", (chunk: string) => {
+    desktopStderr = (desktopStderr + chunk).slice(-32_768);
+  });
   const page = await app.firstWindow();
   await page.waitForLoadState("domcontentloaded");
   await expect(page.getByRole("heading", { name: "启动星协" })).toBeVisible();
@@ -313,7 +319,9 @@ async function launchInstalled(
       });
     }
   }
-  throw new Error(`Installed desktop did not become ready:\n${latestStatus}`);
+  throw new Error(
+    `Installed desktop did not become ready:\n${latestStatus}\nElectron stderr:\n${desktopStderr || "—"}`,
+  );
 }
 
 async function relaunchAfterCrash(

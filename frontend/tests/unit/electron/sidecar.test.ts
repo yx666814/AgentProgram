@@ -49,9 +49,11 @@ function emitReady(child: FakeChild, port: number): void {
 describe("SidecarManager", () => {
   afterEach(() => {
     spawnMock.mockReset();
+    vi.restoreAllMocks();
   });
 
   it("restarts after startup failure and after a ready child exits", async () => {
+    const stderrWrite = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const failed = new FakeChild(101);
     const ready = new FakeChild(102);
     const replacement = new FakeChild(103);
@@ -74,6 +76,9 @@ describe("SidecarManager", () => {
     await expect(firstOutcome).resolves.toMatchObject({
       message: "Sidecar exited before ready (code=1, signal=null)",
     });
+    expect(stderrWrite).toHaveBeenCalledWith(
+      expect.stringContaining("XINGXIE_SIDECAR_START_FAILED"),
+    );
 
     const secondStartup = manager.start();
     emitReady(ready, 43101);
