@@ -9218,8 +9218,8 @@
     }
   },
   "x-agentprogram-contract": {
-    "backendCommit": "6be04beceb6f78addfb2b81563181a0b62914d08",
-    "backendTree": "3557af3e91470bfb78f375edb4db64189248f841",
+    "backendCommit": "d242079aae9feddf8568f022322f8fd71b7a50f4",
+    "backendTree": "eae9b0989393ea83233b646199458c104a11711d",
     "generator": "frontend/scripts/export-backend-contracts.py",
     "schemaVersion": 1
   }

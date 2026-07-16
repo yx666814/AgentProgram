@@ -3,6 +3,7 @@
 > 日期：2026-07-16
 > 分支：`codex/stage9-product-e2e`
 > 实现提交：`6be04be feat(release): add installed product verification`
+> CI 修复提交：`d242079 fix(ci): stabilize Windows release gates`
 > 契约变更：`FRONTEND-CONTRACT-CHANGE-REQUEST-v7.md`
 > 状态：本地安装版全产品 E2E 通过；PR CI、独立审查与 Authenticode 签名尚未完成，不宣称 V1 已发布
 
@@ -84,12 +85,12 @@ npm run test:product
 
 | 文件 | SHA-256 |
 | --- | --- |
-| `frontend/contracts/openapi.json` | `7B9C17BBBB8CAA4B1A2B7CCEEF85282EA097D84A88215854912F35C6E98D363E` |
-| `frontend/contracts/events.schema.json` | `081B63399C8200FA197A0D41AC308C2602812FD216E1341CC6F60799689AF886` |
-| `frontend/contracts/capabilities.json` | `5F6867BCA050957B0988341A9670160016EBE6E36A5739A4933F797279EEB152` |
-| `frontend/contracts/SHA256SUMS.json` | `1A9A75942F49BB10AB7B890BCD4D45295AA4EEB2D844096305DB7D814FB9814A` |
+| `frontend/contracts/openapi.json` | `BC393FDDF78B363F67874D6656B9E308A7421FC8D30FFA29713470EA7BE83173` |
+| `frontend/contracts/events.schema.json` | `34D8245F50A0A26FC4449F79B5BD9990F7BCD72F31B4AD0EA160FD22C0840E15` |
+| `frontend/contracts/capabilities.json` | `42F234EE0ABD9A7A6461D371A6D27C76C9BE95B0B2B8524C2255082CA4D64E2C` |
+| `frontend/contracts/SHA256SUMS.json` | `5F658133AE572BAFECC342EB2478EA1F0C2CD4C07FB4B9C68CA72B3D6DA4F51B` |
 
-backend commit 为 `6be04beceb6f78addfb2b81563181a0b62914d08`，backend tree 为 `3557af3e91470bfb78f375edb4db64189248f841`。
+backend commit 为 `d242079aae9feddf8568f022322f8fd71b7a50f4`，backend tree 为 `eae9b0989393ea83233b646199458c104a11711d`。
 
 ## 5. 自动门禁
 
@@ -126,7 +127,7 @@ npm run test:product
 生产包扫描：
 
 - `app.asar` 共 279 个条目；测试、`test-results`、Playwright 报告和 Testing Library 路径为 0；
-- `app.asar` 内 `contracts/SHA256SUMS.json` SHA-256 为 `1A9A75942F49BB10AB7B890BCD4D45295AA4EEB2D844096305DB7D814FB9814A`，与源码冻结文件一致；
+- `app.asar` 内 `contracts/SHA256SUMS.json` SHA-256 为 `5F658133AE572BAFECC342EB2478EA1F0C2CD4C07FB4B9C68CA72B3D6DA4F51B`，与源码冻结文件一致；
 - Renderer 中 `fixtureDesktopPort`、测试密钥、Node `fs`、`ipcRenderer` 和 `__desktopTest` 定向扫描为 0；
 - 最终安装器重建后重新执行 product E2E，结果仍为 `1 passed`。
 
@@ -174,10 +175,10 @@ npm run test:product
 
 | 产物 | 字节 | SHA-256 | 签名 |
 | --- | ---: | --- | --- |
-| `frontend/release/XingXie-0.1.0-Setup.exe` | 122296193 | `41DEEF60DDEF93B75B2E9B0BA9103908BF1EC6B75155ACA3C30C273431D8D670` | `NotSigned` |
-| `frontend/release/win-unpacked/星协.exe` | 225486336 | `93D638DE1C9CCAB5777E341EC4ED925EAED37CBC8514F3461F2D17BA4F61BC2A` | `NotSigned` |
-| `frontend/release/win-unpacked/resources/app.asar` | 13845641 | `21ED5F35F61EEC6EB048E9DE18A2AFD7441D3129015A7E9E71728D92D32D0483` | 不适用 |
-| `agent-platform-desktop-sidecar.exe` | 13018945 | `62074280F32BC31B95436B1ACE044BFD88C83DD9B900CBC09A571682DF4E8621` | `NotSigned` |
+| `frontend/release/XingXie-0.1.0-Setup.exe` | 122297459 | `3A5E80E877FA5E8860245C7DACED5EA3C13EF9DDF69BC9AF16B06F619BA07229` | `NotSigned` |
+| `frontend/release/win-unpacked/星协.exe` | 225486336 | `2FF6CD0CAEE17193C985A8B32E3E4A0D5FB1B30406FA2BB6B5EAA5DB434BC875` | `NotSigned` |
+| `frontend/release/win-unpacked/resources/app.asar` | 13845641 | `C370B9FA3EFAB4FC1F5D3FD9238155E80514CF955A9CC1CD74A06790E8F57E25` | 不适用 |
+| `agent-platform-desktop-sidecar.exe` | 13018945 | `1795595AD36DAEC3762BE8FBE4AEC5FCE9C7DCA5FB61811A9BAD663F08A510E5` | `NotSigned` |
 
 当前发布阻塞项：
 

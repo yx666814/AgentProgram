@@ -3,6 +3,7 @@
 > 日期：2026-07-16
 > 状态：阶段 9 DesktopPort v3 传输语义澄清与受限安装版验收入口
 > 实现基线：`6be04beceb6f78addfb2b81563181a0b62914d08`
+> 契约冻结提交：`d242079aae9feddf8568f022322f8fd71b7a50f4`
 > 前一版本：`FRONTEND-CONTRACT-CHANGE-REQUEST-v6.md`（保留，不覆盖）
 > 适用范围：Electron Main、真实 BackendClient、安装后 Windows product E2E
 
@@ -89,15 +90,15 @@ npm run contracts:verify
 
 | 文件 | SHA-256 |
 | --- | --- |
-| `frontend/contracts/openapi.json` | `7B9C17BBBB8CAA4B1A2B7CCEEF85282EA097D84A88215854912F35C6E98D363E` |
-| `frontend/contracts/events.schema.json` | `081B63399C8200FA197A0D41AC308C2602812FD216E1341CC6F60799689AF886` |
-| `frontend/contracts/capabilities.json` | `5F6867BCA050957B0988341A9670160016EBE6E36A5739A4933F797279EEB152` |
-| `frontend/contracts/SHA256SUMS.json` | `1A9A75942F49BB10AB7B890BCD4D45295AA4EEB2D844096305DB7D814FB9814A` |
+| `frontend/contracts/openapi.json` | `BC393FDDF78B363F67874D6656B9E308A7421FC8D30FFA29713470EA7BE83173` |
+| `frontend/contracts/events.schema.json` | `34D8245F50A0A26FC4449F79B5BD9990F7BCD72F31B4AD0EA160FD22C0840E15` |
+| `frontend/contracts/capabilities.json` | `42F234EE0ABD9A7A6461D371A6D27C76C9BE95B0B2B8524C2255082CA4D64E2C` |
+| `frontend/contracts/SHA256SUMS.json` | `5F658133AE572BAFECC342EB2478EA1F0C2CD4C07FB4B9C68CA72B3D6DA4F51B` |
 
 冻结元数据：
 
-- backend commit：`6be04beceb6f78addfb2b81563181a0b62914d08`；
-- backend tree：`3557af3e91470bfb78f375edb4db64189248f841`。
+- backend commit：`d242079aae9feddf8568f022322f8fd71b7a50f4`；
+- backend tree：`eae9b0989393ea83233b646199458c104a11711d`。
 
 ## 6. 验证与回滚
 
