@@ -654,6 +654,17 @@ async function completeStage(
     "agent run snapshot",
   );
   expect(record(runSnapshot.run, "persisted agent run").status).toBe("succeeded");
+  expect(records(runSnapshot.calls, "persisted model calls").length).toBeGreaterThanOrEqual(3);
+  expect(
+    records(runSnapshot.usage, "persisted usage").every(
+      (usage) => integer(usage.total_tokens, "usage total tokens") > 0,
+    ),
+  ).toBe(true);
+  const persistedOutput = await driver.query(
+    "get_agent_run_output_api_v1_agent_runs__run_id__output_get",
+    { path: { run_id: runId } },
+  );
+  expect(text(persistedOutput, "persisted agent output")).toContain("[Fake Model]");
 
   await driver.transition(workflowId, stage, "producing");
   const versionCreation = record(
@@ -1287,6 +1298,10 @@ test("installed desktop completes and recovers the V1 product workflow", async (
       recoveryWorkflowId,
       managedProjectId,
       stages: STAGES,
+      formalAgentRuns: 6,
+      qualityGateEvaluations: 6,
+      lockedArtifactVersions: 5,
+      handoffs: 5,
       manualApprovals: 4,
       autonomousHandoffs: 1,
       warningRework: true,
