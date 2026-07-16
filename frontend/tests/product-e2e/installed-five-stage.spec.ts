@@ -295,8 +295,25 @@ async function launchInstalled(
   const page = await app.firstWindow();
   await page.waitForLoadState("domcontentloaded");
   await expect(page.getByRole("heading", { name: "启动星协" })).toBeVisible();
-  await expect(page.getByText("数据库就绪", { exact: true })).toBeVisible();
-  return { app, driver: new DesktopDriver(page) };
+  const enterProjects = page.getByRole("button", { name: "进入项目" });
+  let latestStatus = "系统状态尚未呈现";
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    await expect(page.getByText("数据库就绪", { exact: true })).toBeVisible({
+      timeout: 45_000,
+    });
+    latestStatus = await page.locator(".status-list").innerText();
+    if (await enterProjects.isEnabled()) {
+      return { app, driver: new DesktopDriver(page) };
+    }
+    if (attempt < 5) {
+      await page.getByRole("button", { name: "重新检查" }).click();
+      await page.waitForTimeout(1_000);
+      await expect(page.getByRole("heading", { name: "启动星协" })).toBeVisible({
+        timeout: 45_000,
+      });
+    }
+  }
+  throw new Error(`Installed desktop did not become ready:\n${latestStatus}`);
 }
 
 async function relaunchAfterCrash(
@@ -1324,6 +1341,31 @@ test("installed desktop completes and recovers the V1 product workflow", async (
       path: reportPath,
       contentType: "application/json",
     });
+  } catch (error) {
+    const page = installed?.windows()[0];
+    if (page !== undefined && !page.isClosed()) {
+      const pageText = await page.locator("body").innerText().catch(() => "页面文本不可用");
+      await testInfo.attach("desktop-failure-page", {
+        body: pageText,
+        contentType: "text/plain",
+      });
+      const screenshotPath = testInfo.outputPath("desktop-failure.png");
+      await page.screenshot({ fullPage: true, path: screenshotPath }).catch(() => undefined);
+      if (await exists(screenshotPath)) {
+        await testInfo.attach("desktop-failure-screenshot", {
+          path: screenshotPath,
+          contentType: "image/png",
+        });
+      }
+    }
+    const backendLog = join(dataRoot, "logs", "backend.jsonl");
+    if (await exists(backendLog)) {
+      await testInfo.attach("desktop-backend-log", {
+        path: backendLog,
+        contentType: "application/x-ndjson",
+      });
+    }
+    throw error;
   } finally {
     if (installed !== null) {
       await installed.close().catch(() => undefined);
