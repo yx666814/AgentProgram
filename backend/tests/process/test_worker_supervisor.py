@@ -1724,6 +1724,13 @@ async def test_broken_worker_stdin_raises_sanitized_unavailable_and_cleans_up() 
         else:
             raise AssertionError("broken-stdin fixture did not become ready")
 
+        for _ in range(200):
+            if handle._stopping or handle.process.returncode is not None:
+                break
+            await asyncio.sleep(0.01)
+        else:
+            raise AssertionError("broken-stdin fixture did not close its input")
+
         with pytest.raises(WorkerUnavailableError, match="worker is unavailable"):
             await supervisor.send(
                 handle.worker_id,
@@ -1731,6 +1738,13 @@ async def test_broken_worker_stdin_raises_sanitized_unavailable_and_cleans_up() 
                 {"secret": "DO_NOT_ECHO_BROKEN_PIPE"},
                 timeout_seconds=1.0,
             )
+
+        for _ in range(200):
+            if handle.process.returncode is not None and supervisor.get(handle.worker_id) is None:
+                break
+            await asyncio.sleep(0.01)
+        else:
+            raise AssertionError("broken-stdin cleanup did not finish")
 
         assert handle.pending == {}
         assert handle.process.returncode is not None

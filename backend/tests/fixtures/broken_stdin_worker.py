@@ -1,5 +1,4 @@
 import argparse
-import os
 import sys
 import time
 
@@ -13,7 +12,11 @@ def main() -> int:
     parser.add_argument("--project-id", required=True)
     parser.add_argument("--worker-id", required=True)
     args = parser.parse_args()
-    os.close(sys.stdin.buffer.fileno())
+    sys.stdin.close()
+    # Let Windows publish the closed read end before the readiness heartbeat.
+    # The process then exits so the supervisor observes EOF rather than a
+    # platform-specific buffered write into an already-closed pipe.
+    time.sleep(0.25)
     sys.stdout.buffer.write(
         encode_frame(
             IpcMessage(
@@ -30,7 +33,6 @@ def main() -> int:
         )
     )
     sys.stdout.buffer.flush()
-    time.sleep(60)
     return 0
 
 
