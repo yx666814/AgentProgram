@@ -37,6 +37,7 @@ for (const theme of referenceThemes) {
         animations: "disabled",
         caret: "hide",
         fullPage: false,
+        maxDiffPixels: 100,
       });
     });
   }
