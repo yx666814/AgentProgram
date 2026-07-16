@@ -36,7 +36,7 @@ def canonical_workspace_key(path: Path) -> str:
 def _resolve_directory_without_links(
     path: Path,
     *,
-    code: str,
+    error_identifier: str,
     message: str,
 ) -> Path:
     current = path.absolute()
@@ -45,9 +45,9 @@ def _resolve_directory_without_links(
         if stat.S_ISLNK(metadata.st_mode) or bool(
             getattr(metadata, "st_file_attributes", 0) & _WINDOWS_REPARSE_POINT
         ):
-            raise UnsafeWorkspacePathError(code, message)
+            raise UnsafeWorkspacePathError(error_identifier, message)
         if not stat.S_ISDIR(metadata.st_mode):
-            raise UnsafeWorkspacePathError(code, message)
+            raise UnsafeWorkspacePathError(error_identifier, message)
         if current.parent == current:
             break
         current = current.parent
@@ -63,7 +63,7 @@ def validate_direct_workspace_root(path: Path) -> tuple[Path, str]:
     try:
         resolved = _resolve_directory_without_links(
             path,
-            code="workspace.path_unsafe",
+            error_identifier="workspace.path_unsafe",
             message="Workspace path cannot contain links or reparse points",
         )
         with os.scandir(resolved) as entries:
@@ -99,7 +99,7 @@ def create_managed_workspace_root(data_root: Path, project_id: str) -> tuple[Pat
     try:
         resolved_data_root = _resolve_directory_without_links(
             data_root,
-            code="workspace.managed_root_unsafe",
+            error_identifier="workspace.managed_root_unsafe",
             message="Managed workspace data root cannot contain links or reparse points",
         )
         workspaces_root = resolved_data_root / "workspaces"
