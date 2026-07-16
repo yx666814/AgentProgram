@@ -548,14 +548,19 @@ def _create_or_validate_directory(path: Path, *, parents: bool = False) -> Path:
                 )
         else:
             path.mkdir(parents=parents, exist_ok=False)
-        resolved = path.resolve(strict=True)
-        if resolved != path.absolute():
-            raise CheckpointError(
-                "checkpoint.storage_unsafe",
-                "Checkpoint storage path cannot contain links",
-                category=ErrorCategory.INVALID_INPUT,
-            )
-        return resolved
+        current = path.absolute()
+        while True:
+            metadata = current.lstat()
+            if _is_link_or_reparse(metadata) or not stat.S_ISDIR(metadata.st_mode):
+                raise CheckpointError(
+                    "checkpoint.storage_unsafe",
+                    "Checkpoint storage path cannot contain links or reparse points",
+                    category=ErrorCategory.INVALID_INPUT,
+                )
+            if current.parent == current:
+                break
+            current = current.parent
+        return path.resolve(strict=True)
     except CheckpointError:
         raise
     except OSError:

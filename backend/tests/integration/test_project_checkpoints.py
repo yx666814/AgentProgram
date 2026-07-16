@@ -1,9 +1,28 @@
+import ctypes
+import os
 from pathlib import Path
 
 import pytest
 
 from agent_platform.domain.projects import CheckpointReason, ProjectManifest
 from agent_platform.infrastructure.projects.checkpoints import CheckpointError, CheckpointStore
+
+
+def _windows_short_path(path: Path) -> Path:
+    if os.name != "nt":
+        pytest.skip("Windows short paths are platform-specific")
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    get_short_path = kernel32.GetShortPathNameW
+    get_short_path.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32]
+    get_short_path.restype = ctypes.c_uint32
+    buffer = ctypes.create_unicode_buffer(32_768)
+    length = get_short_path(str(path), buffer, len(buffer))
+    if length == 0 or length >= len(buffer):
+        pytest.skip("Windows short path aliases are unavailable")
+    short_path = Path(buffer.value)
+    if short_path == path:
+        pytest.skip("8.3 short-name generation is disabled")
+    return short_path
 
 
 def _manifest(*, excluded_paths: tuple[str, ...] = ()) -> ProjectManifest:
@@ -13,6 +32,25 @@ def _manifest(*, excluded_paths: tuple[str, ...] = ()) -> ProjectManifest:
         manifest_version=1,
         excluded_paths=excluded_paths,
     )
+
+
+def test_checkpoint_storage_accepts_windows_short_path_alias(tmp_path: Path) -> None:
+    target = tmp_path / "long checkpoint root for short path validation"
+    target.mkdir()
+    short_target = _windows_short_path(target)
+    workspace = short_target / "workspace"
+    workspace.mkdir()
+    (workspace / "file.txt").write_text("content", encoding="utf-8")
+
+    checkpoint = CheckpointStore(short_target / "snapshots").create(
+        workspace,
+        _manifest(),
+        reason=CheckpointReason.MANUAL,
+        checkpoint_id="checkpoint_short_path",
+    )
+
+    assert checkpoint.files[0].relative_path == "file.txt"
+    assert (target / "snapshots" / "checkpoints" / "project_1").is_dir()
 
 
 def test_checkpoint_is_content_addressed_deduplicated_and_loadable(tmp_path: Path) -> None:

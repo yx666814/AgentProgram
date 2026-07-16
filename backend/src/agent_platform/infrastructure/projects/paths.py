@@ -33,6 +33,27 @@ def canonical_workspace_key(path: Path) -> str:
     return canonical.casefold() if os.name == "nt" else canonical
 
 
+def _resolve_directory_without_links(
+    path: Path,
+    *,
+    code: str,
+    message: str,
+) -> Path:
+    current = path.absolute()
+    while True:
+        metadata = current.lstat()
+        if stat.S_ISLNK(metadata.st_mode) or bool(
+            getattr(metadata, "st_file_attributes", 0) & _WINDOWS_REPARSE_POINT
+        ):
+            raise UnsafeWorkspacePathError(code, message)
+        if not stat.S_ISDIR(metadata.st_mode):
+            raise UnsafeWorkspacePathError(code, message)
+        if current.parent == current:
+            break
+        current = current.parent
+    return path.resolve(strict=True)
+
+
 def validate_direct_workspace_root(path: Path) -> tuple[Path, str]:
     if not path.is_absolute():
         raise UnsafeWorkspacePathError(
@@ -40,18 +61,11 @@ def validate_direct_workspace_root(path: Path) -> tuple[Path, str]:
             "Workspace path must be absolute",
         )
     try:
-        if _is_link_or_reparse(path) or not path.is_dir():
-            raise UnsafeWorkspacePathError(
-                "workspace.path_unsafe",
-                "Workspace path must be a regular directory",
-            )
-        absolute = path.absolute()
-        resolved = path.resolve(strict=True)
-        if resolved != absolute:
-            raise UnsafeWorkspacePathError(
-                "workspace.path_unsafe",
-                "Workspace path cannot contain links or reparse points",
-            )
+        resolved = _resolve_directory_without_links(
+            path,
+            code="workspace.path_unsafe",
+            message="Workspace path cannot contain links or reparse points",
+        )
         with os.scandir(resolved) as entries:
             next(entries, None)
     except UnsafeWorkspacePathError:
@@ -83,17 +97,11 @@ def create_managed_workspace_root(data_root: Path, project_id: str) -> tuple[Pat
             "Managed workspace data root must be absolute",
         )
     try:
-        if _is_link_or_reparse(data_root) or not data_root.is_dir():
-            raise UnsafeWorkspacePathError(
-                "workspace.managed_root_unsafe",
-                "Managed workspace data root is unsafe",
-            )
-        resolved_data_root = data_root.resolve(strict=True)
-        if resolved_data_root != data_root.absolute():
-            raise UnsafeWorkspacePathError(
-                "workspace.managed_root_unsafe",
-                "Managed workspace data root cannot contain links",
-            )
+        resolved_data_root = _resolve_directory_without_links(
+            data_root,
+            code="workspace.managed_root_unsafe",
+            message="Managed workspace data root cannot contain links or reparse points",
+        )
         workspaces_root = resolved_data_root / "workspaces"
         _create_or_validate_owned_directory(workspaces_root)
         project_root = workspaces_root / project_id
