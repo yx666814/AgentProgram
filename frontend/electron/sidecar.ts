@@ -139,6 +139,15 @@ export class SidecarManager {
     this.sessionToken = null;
   }
 
+  private forgetChild(child: ChildProcessWithoutNullStreams): void {
+    if (this.child !== child) {
+      return;
+    }
+    this.child = null;
+    this.connectionPromise = null;
+    this.sessionToken = null;
+  }
+
   private spawnSidecar(): Promise<SidecarConnection> {
     const command = sidecarCommand();
     const sessionToken = randomBytes(32).toString("base64url");
@@ -180,6 +189,7 @@ export class SidecarManager {
         }
         settled = true;
         clearTimeout(timer);
+        this.forgetChild(child);
         rejectConnection(error);
       };
       const timer = setTimeout(() => {
@@ -232,7 +242,9 @@ export class SidecarManager {
               `Sidecar exited before ready (code=${String(code)}, signal=${String(signal)})`,
             ),
           );
+          return;
         }
+        this.forgetChild(child);
       });
     });
   }

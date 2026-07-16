@@ -361,7 +361,7 @@ async function bootstrap(): Promise<void> {
     events.observeWorkflow(workflowId);
   });
   registerIpc({ window, backend, diagnostics, events, localPaths, secrets });
-  void sidecar.start();
+  void sidecar.start().catch(() => undefined);
 
   let shutdownStarted = false;
   let allowQuit = false;
