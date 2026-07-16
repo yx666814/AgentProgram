@@ -4,8 +4,11 @@
 > 分支：`codex/stage9-product-e2e`
 > 实现提交：`6be04be feat(release): add installed product verification`
 > CI 修复提交：`d242079 fix(ci): stabilize Windows release gates`
+> Sidecar 恢复提交：`383c3d2 fix(desktop): recover sidecar after launch failure`
+> Windows 短路径提交：`98a7be4 fix(windows): accept safe short path aliases`
+> 契约元数据提交：`8d00df6 chore(contracts): refresh backend snapshot metadata`
 > 契约变更：`FRONTEND-CONTRACT-CHANGE-REQUEST-v7.md`
-> 状态：本地安装版全产品 E2E 通过；PR CI、独立审查与 Authenticode 签名尚未完成，不宣称 V1 已发布
+> 状态：本地安装版全产品 E2E（含 Windows 8.3 短路径）通过；PR 以当前 HEAD 的 CI 结果为准；独立审查与 Authenticode 签名尚未完成，不宣称 V1 已发布
 
 ## 1. 验收结论
 
@@ -22,6 +25,7 @@
 - 三方冲突、保护性 Checkpoint 恢复、应用/Backend/运行中 ToolCall 强杀和恢复均通过；
 - 重启后通过真实 WebSocket Ticket/事件流收到持久事件重放；
 - 卸载后 Direct Workspace 和隔离数据根保留，重装后已完成工作流可读取；
+- Windows 8.3 短路径（本地复现 `AGENTP~1`、Runner 使用 `RUNNER~1`）下，日志、Managed/Direct Workspace 和 Checkpoint 均按真实目录校验，不把安全短名误判为 link/reparse point；
 - S00-S09 页面从真实后端读取状态，页面中不存在 `fixtureDesktopPort`。
 
 当前安装器 `Get-AuthenticodeSignature` 结果仍为 `NotSigned`。PR 的 GitHub Actions 也只有在推送后才能产生独立 Windows Runner 结果。因此本文件记录“阶段 9 本地产品门禁通过”，不是“星协 V1 已正式发布”。
@@ -85,12 +89,12 @@ npm run test:product
 
 | 文件 | SHA-256 |
 | --- | --- |
-| `frontend/contracts/openapi.json` | `BC393FDDF78B363F67874D6656B9E308A7421FC8D30FFA29713470EA7BE83173` |
-| `frontend/contracts/events.schema.json` | `34D8245F50A0A26FC4449F79B5BD9990F7BCD72F31B4AD0EA160FD22C0840E15` |
-| `frontend/contracts/capabilities.json` | `42F234EE0ABD9A7A6461D371A6D27C76C9BE95B0B2B8524C2255082CA4D64E2C` |
-| `frontend/contracts/SHA256SUMS.json` | `5F658133AE572BAFECC342EB2478EA1F0C2CD4C07FB4B9C68CA72B3D6DA4F51B` |
+| `frontend/contracts/openapi.json` | `3D1BBCE3E701F245E8F7288A37E470BFF09BA28CB3E3E3F51ABE17CF5784899E` |
+| `frontend/contracts/events.schema.json` | `147AF061786264E9EB0F8CE16D578BF3AD658F55429E5A754A6A67454243E225` |
+| `frontend/contracts/capabilities.json` | `E406E701D63B5C54423277DFA139E0DEF67818CE37F2063C81F63C7EDC020A77` |
+| `frontend/contracts/SHA256SUMS.json` | `A126C318DB6F08B639A85D994A52BEC4544E7C50EB5442E3473AD064FF3E4F3F` |
 
-backend commit 为 `d242079aae9feddf8568f022322f8fd71b7a50f4`，backend tree 为 `eae9b0989393ea83233b646199458c104a11711d`。
+backend commit 为 `276dd1c350c69fb618fe252bc9e99bd50eeba16c`，backend tree 为 `124749a8d2b01fdccb2b4b2ef178923e8782004c`。本轮只刷新上述元数据与哈希，REST、事件、StageContract、Tool Catalog 和冻结错误码目录均未扩张。
 
 ## 5. 自动门禁
 
@@ -114,12 +118,12 @@ npm run test:product
 
 结果：
 
-- Ruff format：238 个文件通过；Ruff check：通过；
+- Ruff format：239 个文件通过；Ruff check：通过；
 - Mypy：138 个 source file 无问题；
-- Pytest：`728 passed, 12 skipped`；唯一 warning 来自 FastAPI TestClient 的第三方弃用提示；
-- Vitest：38 个文件、69 个测试全部通过；
+- Pytest：`732 passed, 12 skipped`；唯一 warning 来自 FastAPI TestClient 的第三方弃用提示；
+- Vitest：39 个文件、70 个测试全部通过；
 - Playwright：58 个测试全部通过；
-- 安装版 product E2E：`1 passed`；
+- 安装版 product E2E：普通 TEMP 与 Windows 8.3 短路径 TEMP 均为 `1 passed`；
 - 契约覆盖：68/41/5/23 通过。
 
 本机 electron-builder 在线分发包获取没有进展，因此最终 NSIS 步骤使用本机已缓存且版本完全相同的 `electron-v43.1.1-win32-x64.zip`；electron-builder 明确输出 `using custom electronDist zip file`。CI 的全新 Windows Runner 仍执行 `npm run build:package`，用于独立验证在线构建路径。
@@ -127,7 +131,7 @@ npm run test:product
 生产包扫描：
 
 - `app.asar` 共 279 个条目；测试、`test-results`、Playwright 报告和 Testing Library 路径为 0；
-- `app.asar` 内 `contracts/SHA256SUMS.json` SHA-256 为 `5F658133AE572BAFECC342EB2478EA1F0C2CD4C07FB4B9C68CA72B3D6DA4F51B`，与源码冻结文件一致；
+- `app.asar` 内置 `contracts/SHA256SUMS.json` SHA-256 为 `A126C318DB6F08B639A85D994A52BEC4544E7C50EB5442E3473AD064FF3E4F3F`，与源码冻结文件一致；
 - Renderer 中 `fixtureDesktopPort`、测试密钥、Node `fs`、`ipcRenderer` 和 `__desktopTest` 定向扫描为 0；
 - 最终安装器重建后重新执行 product E2E，结果仍为 `1 passed`。
 
@@ -152,22 +156,22 @@ npm run test:product
 | R15 | REST、WebSocket、重放、本地认证 | S00、S09 | 冻结契约、BackendClient、EventProxy | 动态本地认证、崩溃后真实持久事件重放 | 通过 |
 | R16 | Renderer、Preload、安全桥、桌面交互 | S00-S09 | DesktopPort v3、CSP、IPC 白名单 | 安装版 14 张页面证据，无 Fixture 文案 | 通过 |
 | R17 | Sidecar、动态端口、SecretStore、Windows 包、备份 | S00、S08、S09 | Main/Sidecar/DPAPI/NSIS | 中文空格安装、DPAPI Fake refs、卸载重装数据保留 | 通过 |
-| R18 | 安装环境五阶段 Fake Model E2E | S00-S09 | 正式安装包 + Fake Adapter | `installed-five-stage.spec.ts` 和 CI artifact | 本地通过，CI 待 PR |
-| R19 | CI、静态、类型、安全、回归矩阵 | S09 | `.github/workflows/ci.yml` | backend/frontend/windows-product 三个 Windows job | 工作流已实现，远端结果待 PR |
+| R18 | 安装环境五阶段 Fake Model E2E | S00-S09 | 正式安装包 + Fake Adapter | `installed-five-stage.spec.ts`、普通/8.3 TEMP 和 CI artifact | 本地通过；远端以当前 HEAD PR check 为准 |
+| R19 | CI、静态、类型、安全、回归矩阵 | S09 | `.github/workflows/ci.yml` | backend/frontend/windows-product 三个 Windows job | 工作流已实现；远端以当前 HEAD PR check 为准 |
 
 ## 7. V1 完成定义追踪
 
 | ID | 完成定义 | 当前证据 | 结论 |
 | --- | --- | --- | --- |
-| G01 | 阶段 0-9 全部门禁通过 | 阶段 0-8 已合并；阶段 9 本地 product E2E 通过 | PR CI/审查/签名未完成 |
+| G01 | 阶段 0-9 全部门禁通过 | 阶段 0-8 已合并；阶段 9 本地普通/8.3 TEMP product E2E 通过 | PR CI 以当前 HEAD 为准；审查/签名未完成 |
 | G02 | Manual/Autonomous 五阶段完整运行 | 安装版五阶段、人工审批、自动 Handoff、Warning 阻断 | 通过 |
 | G03 | 需求到审计可追踪 | PROJECT-PLAN、v1 设计、v1-v7 Change Request、阶段 7-9 验收 | 通过 |
-| G04 | 权限、路径、模型、工具、SecretStore、进程无已知绕过 | 冻结 StageContract、DPAPI、LocalPathPolicy、强杀证据 | 本地通过 |
+| G04 | 权限、路径、模型、工具、SecretStore、进程无已知绕过 | 冻结 StageContract、DPAPI、LocalPathPolicy、短路径与 reparse 分离校验、强杀证据 | 本地通过 |
 | G05 | Worker/Tool/应用强杀无虚假完成、无残留且可恢复 | 安装版活动 ToolCall 强杀和三类 interrupted 计数；后端 Worker suite | 本地通过 |
 | G06 | 密钥和敏感数据不进入 DB/日志/事件/诊断 | 阶段 8 脱敏扫描、DPAPI、阶段 9隔离数据根 | 本地通过 |
 | G07 | 安装包无系统 Python、动态端口、备份恢复 | 阶段 8安装门禁 + 阶段 9卸载重装 | 通过 |
 | G08 | 真实小项目产出代码、测试、构建和交付说明 | ToolCall 生成并由外部 Node 验证 | 通过 |
-| G09 | 零已知 P0/P1、完整测试和 CI | 当前无已知 P0/P1；本地全量已通过，远端 CI 待 PR | 待远端 CI |
+| G09 | 零已知 P0/P1、完整测试和 CI | 当前无已知 P0/P1；本地全量已通过 | 远端以当前 HEAD PR check 为准 |
 | G10 | 正式前端、Electron、Windows 安装包 | 安装版 S00-S09 和 NSIS 已完成 | 对外发布仍缺 Authenticode |
 | G11 | 所有可用前端功能由真实后端驱动 | 冻结 operationId、生产扫描、安装版无 Fixture | 本地通过 |
 
@@ -175,10 +179,10 @@ npm run test:product
 
 | 产物 | 字节 | SHA-256 | 签名 |
 | --- | ---: | --- | --- |
-| `frontend/release/XingXie-0.1.0-Setup.exe` | 122297459 | `3A5E80E877FA5E8860245C7DACED5EA3C13EF9DDF69BC9AF16B06F619BA07229` | `NotSigned` |
-| `frontend/release/win-unpacked/星协.exe` | 225486336 | `2FF6CD0CAEE17193C985A8B32E3E4A0D5FB1B30406FA2BB6B5EAA5DB434BC875` | `NotSigned` |
-| `frontend/release/win-unpacked/resources/app.asar` | 13845641 | `C370B9FA3EFAB4FC1F5D3FD9238155E80514CF955A9CC1CD74A06790E8F57E25` | 不适用 |
-| `agent-platform-desktop-sidecar.exe` | 13018945 | `1795595AD36DAEC3762BE8FBE4AEC5FCE9C7DCA5FB61811A9BAD663F08A510E5` | `NotSigned` |
+| `frontend/release/XingXie-0.1.0-Setup.exe` | 122296001 | `868478053A8E44CE0374EB783CBB7DA00D4FB625D2E5E90B304F2B14AA8E760C` | `NotSigned` |
+| `frontend/release/win-unpacked/星协.exe` | 225486336 | `6E347BE34BB7BD1A8F664D204F51E41D6A100E999AB9B1815D16F457797794FB` | `NotSigned` |
+| `frontend/release/win-unpacked/resources/app.asar` | 13847311 | `AD689C3F5B7BD1A97281CD10D3782EF956BA30EC27E7CBD3BB0E836AF8D67DE1` | 不适用 |
+| `agent-platform-desktop-sidecar.exe` | 13019335 | `54D41DB5E60CBABBCE7EE3F97BE98150B28A7293FCE70ECC7308F2054B8244E3` | `NotSigned` |
 
 当前发布阻塞项：
 
