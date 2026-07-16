@@ -157,6 +157,13 @@ export async function installDesktopFixture(page: Page): Promise<void> {
         subscribe(listener: (event: Record<string, unknown>) => void) { listeners.add(listener); return () => listeners.delete(listener); },
         requestReplay(afterEventId: number) { calls.replays.push(afterEventId); return Promise.resolve(); },
       },
+      secrets: {
+        store(input: { value: string }) { return Promise.resolve({ credentialRef: "credential.xingxie.00000000000000000000000000000000", maskedHint: input.value.length <= 4 ? "****" : `${input.value.slice(0, 3)}****${input.value.slice(-4)}` }); },
+        delete() { return Promise.resolve(); },
+      },
+      diagnostics: {
+        export() { return Promise.resolve({ cancelled: false, path: "D:\\Temp\\xingxie-diagnostics.json" }); },
+      },
       selectDirectory() { return Promise.resolve({ cancelled: false, path: "D:\\Work\\demo" }); },
       showNativeConfirm(input: Record<string, unknown>) { calls.confirms.push(input); return Promise.resolve(true); },
       showSystemNotification() { return Promise.resolve(); },

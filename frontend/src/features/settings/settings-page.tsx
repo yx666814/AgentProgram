@@ -8,6 +8,7 @@ import type {
   ModelProvider,
   RoomModelAssignment,
 } from "../../api/backend-api";
+import type { DesktopPort, StoredSecretReference } from "../../../electron/desktop-port";
 import { useBackend } from "../../api/backend-context";
 import { ApiErrorState } from "../../components/api-error-state";
 import { Button } from "../../components/button";
@@ -22,6 +23,7 @@ interface ProfileFormState {
   model: string;
   name: string;
   provider: ModelProvider;
+  secretValue: string;
 }
 
 interface PendingConfirmation {
@@ -37,6 +39,7 @@ const emptyProfileForm: ProfileFormState = {
   model: "",
   name: "",
   provider: "openai_compatible",
+  secretValue: "",
 };
 
 function providerLabel(provider: ModelProvider): string {
@@ -56,6 +59,7 @@ function formFromProfile(profile: ModelProfile): ProfileFormState {
     model: profile.model,
     name: profile.name,
     provider: profile.provider,
+    secretValue: "",
   };
 }
 
@@ -107,13 +111,9 @@ function ModelProfileForm({
   onCancel: () => void;
   onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void;
 }) {
-  const incomplete = [
-    form.name,
-    form.baseUrl,
-    form.model,
-    form.credentialRef,
-    form.maskedHint,
-  ].some((value) => value.trim().length === 0);
+  const incomplete =
+    [form.name, form.baseUrl, form.model].some((value) => value.trim().length === 0) ||
+    (selectedProfile === null && form.secretValue.length === 0);
 
   return (
     <form className="model-profile-form" onSubmit={onSubmit}>
@@ -122,11 +122,11 @@ function ModelProfileForm({
         <label>Provider<select value={form.provider} onChange={(event) => { setForm({ ...form, provider: event.target.value as ModelProvider }); }}><option value="openai_compatible">OpenAI Compatible</option><option value="anthropic">Anthropic</option><option value="fake">Fake（测试）</option></select></label>
         <label>模型 ID<input value={form.model} onChange={(event) => { setForm({ ...form, model: event.target.value }); }} /></label>
         <label>Base URL<input placeholder="https://provider.example/v1" value={form.baseUrl} onChange={(event) => { setForm({ ...form, baseUrl: event.target.value }); }} /></label>
-        <label>凭证引用<input aria-label="凭证引用" placeholder="secret:model.primary" value={form.credentialRef} onChange={(event) => { setForm({ ...form, credentialRef: event.target.value }); }} /></label>
-        <label>脱敏提示<input aria-label="脱敏提示" placeholder="sk-****1234" value={form.maskedHint} onChange={(event) => { setForm({ ...form, maskedHint: event.target.value }); }} /></label>
+        <label>API Key<input aria-label="API Key" autoComplete="new-password" placeholder={selectedProfile === null ? "输入后由 Windows 加密保存" : "留空则保留现有凭证"} type="password" value={form.secretValue} onChange={(event) => { setForm({ ...form, secretValue: event.target.value }); }} /></label>
+        {selectedProfile === null ? null : <label>当前凭证<input aria-label="当前凭证" readOnly value={`${form.credentialRef} · ${form.maskedHint}`} /></label>}
       </div>
       {selectedProfile !== null ? <label className="inline-check"><input checked={form.enabled} type="checkbox" onChange={(event) => { setForm({ ...form, enabled: event.target.checked }); }} />启用此配置</label> : null}
-      <p className="contract-note settings-contract-note">这里只提交 `credential_ref` 和已经脱敏的提示，不接收 API Key 明文。SecretStore Bridge 尚未实现。</p>
+      <p className="contract-note settings-contract-note">API Key 只通过 Preload 白名单一次写入 Electron Main，并由 Windows DPAPI 加密保存；后端仍只持久化 `credential_ref` 和脱敏提示，Renderer 不能读取或回显密钥。</p>
       <div className="page-actions settings-form-actions">
         {selectedProfile !== null ? <Button disabled={busy} onClick={onCancel}>取消编辑</Button> : null}
         <Button disabled={busy || incomplete} {...(incomplete ? { disabledReason: "请填写后端 ModelProfile 契约要求的全部字段" } : {})} tone="primary" type="submit">{selectedProfile === null ? "创建模型配置" : "保存模型配置"}</Button>
@@ -244,7 +244,15 @@ function AssignmentEditor({
   );
 }
 
-function ConnectedSettingsPage({ api, events }: { api: BackendApi; events: EventReadModel }) {
+function ConnectedSettingsPage({
+  api,
+  events,
+  port,
+}: {
+  api: BackendApi;
+  events: EventReadModel;
+  port: DesktopPort;
+}) {
   const load = useCallback(async () => {
     const [system, profiles] = await Promise.all([api.systemInfo(), api.listModelProfiles()]);
     return { system, profiles: profiles.profiles };
@@ -275,17 +283,44 @@ function ConnectedSettingsPage({ api, events }: { api: BackendApi; events: Event
     event.preventDefault();
     setBusy(true);
     setError(null);
+    let stagedSecret: StoredSecretReference | null = null;
+    let profileSaved = false;
     try {
+      if (form.secretValue.length > 0) {
+        stagedSecret = await port.secrets.store({
+          value: form.secretValue,
+          label: form.name.trim(),
+        });
+      }
+      const submittedForm: ProfileFormState = {
+        ...form,
+        credentialRef: stagedSecret?.credentialRef ?? form.credentialRef,
+        maskedHint: stagedSecret?.maskedHint ?? form.maskedHint,
+        secretValue: "",
+      };
       const receipt = selectedProfile === null
-        ? await api.createModelProfile(profileCreateInput(form))
-        : await api.updateModelProfile(selectedProfile, profileUpdateInput(form));
+        ? await api.createModelProfile(profileCreateInput(submittedForm))
+        : await api.updateModelProfile(selectedProfile, profileUpdateInput(submittedForm));
+      profileSaved = true;
       const eventType = selectedProfile === null ? "model_profile.created" : "model_profile.updated";
       setPending({ correlationId: receipt.correlationId, eventType });
       setNotice(`后端已返回 ${receipt.payload.id} 并重新读取；仍等待 ${eventType} 持久事件确认。`);
       setSelectedProfile(null);
       setForm(emptyProfileForm);
       await reload();
+      if (
+        stagedSecret !== null &&
+        selectedProfile !== null &&
+        selectedProfile.credential_ref !== stagedSecret.credentialRef
+      ) {
+        await port.secrets.delete(selectedProfile.credential_ref).catch(() => {
+          setNotice("模型配置已更新，但旧的本地加密凭证未能自动清理。");
+        });
+      }
     } catch (submitError) {
+      if (stagedSecret !== null && !profileSaved) {
+        await port.secrets.delete(stagedSecret.credentialRef).catch(() => undefined);
+      }
       setError(submitError);
     } finally {
       setBusy(false);
@@ -308,7 +343,7 @@ function ConnectedSettingsPage({ api, events }: { api: BackendApi; events: Event
       <div className="settings-summary-grid">
         <article><span>后端版本</span><strong>{resource.data.system.backend_version}</strong><small>protocol v{String(resource.data.system.protocol_version)}</small></article>
         <article><span>模型配置</span><strong>{String(resource.data.profiles.length)}</strong><small>来自 GET /model-profiles</small></article>
-        <article><span>SecretStore</span><strong>不可用</strong><small>Renderer 不接收 API Key</small></article>
+        <article><span>SecretStore</span><strong>Windows 加密</strong><small>只写入，不回读明文</small></article>
         <article><span>模型测试</span><strong>不可用</strong><small>没有 Test operation</small></article>
       </div>
 
@@ -316,11 +351,11 @@ function ConnectedSettingsPage({ api, events }: { api: BackendApi; events: Event
         <section className="data-panel" aria-labelledby="profile-list-title">
           <header><h2 id="profile-list-title">ModelProfile</h2><span>{String(resource.data.profiles.length)} 项</span></header>
           <div className="profile-list">{resource.data.profiles.map((profile) => <article key={profile.id}><header><div><strong>{profile.name}</strong><span>{providerLabel(profile.provider)} · {profile.model}</span></div><span className={`state-badge ${profile.enabled ? "state-ready" : "state-closed"}`}>{profile.enabled ? "enabled" : "disabled"}</span></header><dl><div><dt>Profile ID</dt><dd>{profile.id}</dd></div><div><dt>Base URL</dt><dd>{profile.base_url}</dd></div><div><dt>credential_ref</dt><dd>{profile.credential_ref}</dd></div><div><dt>脱敏提示</dt><dd>{profile.masked_hint}</dd></div><div><dt>版本</dt><dd>{String(profile.version)}</dd></div><div><dt>更新时间</dt><dd>{new Date(profile.updated_at).toLocaleString()}</dd></div></dl><div className="page-actions"><Button onClick={() => { setSelectedProfile(profile); setForm(formFromProfile(profile)); }}>编辑</Button></div></article>)}</div>
-          {resource.data.profiles.length === 0 ? <p className="empty-copy">后端当前没有 ModelProfile。可在右侧创建只包含凭证引用的配置。</p> : null}
+          {resource.data.profiles.length === 0 ? <p className="empty-copy">后端当前没有 ModelProfile。可在右侧写入加密凭证并创建配置。</p> : null}
         </section>
 
         <section className="data-panel" aria-labelledby="profile-editor-title">
-          <header><h2 id="profile-editor-title">{selectedProfile === null ? "创建模型配置" : `编辑 ${selectedProfile.id}`}</h2><span>无明文密钥</span></header>
+          <header><h2 id="profile-editor-title">{selectedProfile === null ? "创建模型配置" : `编辑 ${selectedProfile.id}`}</h2><span>密钥只写入</span></header>
           <ModelProfileForm busy={busy} form={form} selectedProfile={selectedProfile} setForm={setForm} onCancel={() => { setSelectedProfile(null); setForm(emptyProfileForm); }} onSubmit={(event) => { void submitProfile(event); }} />
         </section>
       </div>
@@ -336,6 +371,6 @@ function ConnectedSettingsPage({ api, events }: { api: BackendApi; events: Event
 }
 
 export function SettingsPage() {
-  const { api, events } = useBackend();
-  return api === null ? <SettingsUnavailable /> : <ConnectedSettingsPage api={api} events={events} />;
+  const { api, events, port } = useBackend();
+  return api === null || port === null ? <SettingsUnavailable /> : <ConnectedSettingsPage api={api} events={events} port={port} />;
 }

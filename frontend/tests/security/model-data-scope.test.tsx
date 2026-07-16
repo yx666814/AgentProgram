@@ -6,7 +6,7 @@ import { SettingsPage } from "../../src/features/settings/settings-page";
 import { createFakeDesktopPort, reply } from "../support/fake-desktop-port";
 import { modelProfile } from "../support/settings-diagnostics-fixtures";
 
-it("renders only credential references and masked hints", async () => {
+it("does not rehydrate stored credentials into the write-only API key field", async () => {
   const profile = modelProfile();
   const port = createFakeDesktopPort({
     query(request) {
@@ -23,6 +23,8 @@ it("renders only credential references and masked hints", async () => {
   render(<BackendProvider port={port}><SettingsPage /></BackendProvider>);
   expect(await screen.findByText(profile.credential_ref)).toBeVisible();
   expect(screen.getByText(profile.masked_hint)).toBeVisible();
-  expect(screen.queryByLabelText(/API Key|Secret|密钥/i)).not.toBeInTheDocument();
+  const apiKey = screen.getByLabelText("API Key");
+  expect(apiKey).toHaveAttribute("type", "password");
+  expect(apiKey).toHaveValue("");
   expect(screen.getByRole("button", { name: "测试连接" })).toBeDisabled();
 });

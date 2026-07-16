@@ -16,6 +16,7 @@ from agent_platform.interfaces.api.routes.model_runtime import router as model_r
 from agent_platform.interfaces.api.routes.projects import router as projects_router
 from agent_platform.interfaces.api.routes.stage5 import router as stage5_router
 from agent_platform.interfaces.api.routes.workflows import router as workflows_router
+from agent_platform.ports.secrets import SecretStore
 
 
 class AgentPlatformFastAPI(FastAPI):
@@ -34,11 +35,11 @@ class AgentPlatformFastAPI(FastAPI):
         return super().build_middleware_stack()
 
 
-def create_app(settings: Settings) -> FastAPI:
+def create_app(settings: Settings, *, secret_store: SecretStore | None = None) -> FastAPI:
     app = AgentPlatformFastAPI(
         title="Agent Platform Backend",
         version=__version__,
-        lifespan=build_lifespan(settings),
+        lifespan=build_lifespan(settings, secret_store),
     )
     app.state.settings = settings
     app.state.shutdown_coordinator = ShutdownCoordinator()

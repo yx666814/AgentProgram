@@ -1,0 +1,15 @@
+export const IPC_CHANNELS = {
+  backendQuery: "desktop:backend:query",
+  backendCommand: "desktop:backend:command",
+  backendReplay: "desktop:backend:replay",
+  backendEvent: "desktop:backend:event",
+  secretStore: "desktop:secret:store",
+  secretDelete: "desktop:secret:delete",
+  diagnosticsExport: "desktop:diagnostics:export",
+  selectDirectory: "desktop:native:select-directory",
+  showConfirm: "desktop:native:show-confirm",
+  showNotification: "desktop:native:show-notification",
+  openLocalLocation: "desktop:native:open-local-location",
+  getWindowState: "desktop:window:get-state",
+  requestWindowClose: "desktop:window:request-close",
+} as const;

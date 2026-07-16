@@ -4,6 +4,7 @@ from agent_platform.infrastructure.model_runtime.adapters import (
     OpenAICompatibleAdapter,
     ScriptedFakeModelAdapter,
 )
+from agent_platform.infrastructure.model_runtime.desktop_secrets import DesktopHttpSecretStore
 from agent_platform.infrastructure.model_runtime.output_store import (
     ModelOutputStore,
     StoredModelOutput,
@@ -15,6 +16,7 @@ from agent_platform.infrastructure.model_runtime.secrets import (
 
 __all__ = [
     "AnthropicAdapter",
+    "DesktopHttpSecretStore",
     "FakeModelScript",
     "InMemorySecretStore",
     "ModelOutputStore",

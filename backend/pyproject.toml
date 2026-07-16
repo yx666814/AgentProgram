@@ -21,10 +21,12 @@ dependencies = [
 
 [project.scripts]
 agent-platform-backend = "agent_platform.main:main"
+agent-platform-desktop-sidecar = "agent_platform.desktop:main"
 
 [dependency-groups]
 dev = [
   "mypy>=1.14,<2",
+  "pyinstaller>=6.21.0",
   "pytest>=8.3,<9",
   "pytest-asyncio>=0.25,<1",
   "pytest-cov>=6,<7",

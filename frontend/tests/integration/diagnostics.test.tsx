@@ -32,7 +32,11 @@ it("loads real system, event replay, ToolCall and recovery contracts", async () 
   expect(await screen.findByText("workflow.paused")).toBeVisible();
   expect(screen.getByText("Read")).toBeVisible();
   expect(screen.getByText("recovery_demo")).toBeVisible();
-  expect(screen.getByRole("button", { name: "导出诊断包" })).toBeDisabled();
+  await user.click(screen.getByRole("button", { name: "导出诊断包" }));
+  expect(port.calls.diagnosticsExports).toEqual([
+    { workflowId: "workflow_demo", afterEventId: 41 },
+  ]);
+  expect(await screen.findByText(/脱敏诊断包已导出到/)).toBeVisible();
   const replay = port.calls.queries.find((request) => request.operationId === "replay_events_api_v1_events_replay_get");
   expect(replay?.parameters).toEqual({ query: { workflow_id: "workflow_demo", after_event_id: 41 } });
 });
