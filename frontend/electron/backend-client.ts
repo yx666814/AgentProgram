@@ -77,7 +77,18 @@ async function responsePayload(response: Response): Promise<unknown> {
   if (bytes.byteLength === 0) {
     return null;
   }
-  return JSON.parse(new TextDecoder().decode(bytes));
+  const content = new TextDecoder().decode(bytes);
+  const contentType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+  if (contentType === "application/x-ndjson") {
+    return content
+      .split(/\r?\n/u)
+      .filter((line) => line.trim() !== "")
+      .map((line) => JSON.parse(line) as unknown);
+  }
+  if (contentType === "text/plain") {
+    return content;
+  }
+  return JSON.parse(content);
 }
 
 export class BackendClient {
@@ -157,4 +168,3 @@ export class BackendClient {
     }
   }
 }
-

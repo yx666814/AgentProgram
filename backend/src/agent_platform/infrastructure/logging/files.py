@@ -33,10 +33,15 @@ def _validate_log_root(log_root: Path) -> Path:
             raise UnsafeLogPathError("log root is unsafe")
     else:
         log_root.mkdir(parents=True, exist_ok=False)
-    resolved = log_root.resolve(strict=True)
-    if resolved != log_root.absolute():
-        raise UnsafeLogPathError("log root is unsafe")
-    return resolved
+    current = log_root.absolute()
+    while True:
+        metadata = current.lstat()
+        if _is_link_or_reparse(current, metadata) or not stat.S_ISDIR(metadata.st_mode):
+            raise UnsafeLogPathError("log root is unsafe")
+        if current.parent == current:
+            break
+        current = current.parent
+    return log_root.resolve(strict=True)
 
 
 def _validate_regular_candidate(path: Path, resolved_root: Path) -> os.stat_result:
@@ -83,14 +88,14 @@ class SafeRotatingFileHandler(logging.Handler):
         retention_age: timedelta,
     ) -> None:
         super().__init__()
+        self._stream: BinaryIO | None = None
+        self._lock = threading.RLock()
         self._log_root = log_root
         self._resolved_root = _validate_log_root(log_root)
         self._active_path = log_root / "backend.jsonl"
         self._max_bytes = max_bytes
         self._retained_file_count = retained_file_count
         self._retention_age = retention_age
-        self._stream: BinaryIO | None = None
-        self._lock = threading.RLock()
 
     @property
     def active_path(self) -> Path:

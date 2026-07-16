@@ -1,5 +1,6 @@
 from agent_platform.infrastructure.model_runtime.adapters import (
     AnthropicAdapter,
+    DeterministicFakeModelAdapter,
     FakeModelScript,
     OpenAICompatibleAdapter,
     ScriptedFakeModelAdapter,
@@ -16,6 +17,7 @@ from agent_platform.infrastructure.model_runtime.secrets import (
 
 __all__ = [
     "AnthropicAdapter",
+    "DeterministicFakeModelAdapter",
     "DesktopHttpSecretStore",
     "FakeModelScript",
     "InMemorySecretStore",

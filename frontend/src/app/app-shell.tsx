@@ -122,7 +122,7 @@ export function AppShell() {
 
           <footer className="workspace-statusbar">
             <span className="status-dot" aria-hidden="true" />
-            <span>阶段 7B 正式前端</span>
+            <span>Windows 本地桌面</span>
             <span className="status-separator">·</span>
             <span>{port === null ? "桌面桥未接入" : "桌面桥已接入"}</span>
           </footer>

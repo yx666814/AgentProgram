@@ -20,5 +20,12 @@
     "useUnknownInCatchVariables": true,
     "types": ["vitest/globals", "@testing-library/jest-dom", "node"]
   },
-  "include": ["src", "electron", "tests", "vite.config.ts", "playwright.config.ts"]
+  "include": [
+    "src",
+    "electron",
+    "tests",
+    "vite.config.ts",
+    "playwright.config.ts",
+    "playwright.product.config.ts"
+  ]
 }

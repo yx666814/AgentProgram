@@ -9,7 +9,11 @@ from agent_platform.domain.model_runtime import (
     ModelMessage,
     ModelMessageRole,
 )
-from agent_platform.infrastructure.model_runtime import AnthropicAdapter, OpenAICompatibleAdapter
+from agent_platform.infrastructure.model_runtime import (
+    AnthropicAdapter,
+    DeterministicFakeModelAdapter,
+    OpenAICompatibleAdapter,
+)
 
 
 def _invocation() -> ModelInvocation:
@@ -77,3 +81,20 @@ async def test_anthropic_adapter_parses_text_and_split_usage() -> None:
     assert "".join(chunk.text for chunk in chunks) == "answer"
     assert sum(chunk.input_tokens or 0 for chunk in chunks) == 4
     assert sum(chunk.output_tokens or 0 for chunk in chunks) == 5
+
+
+@pytest.mark.asyncio
+async def test_deterministic_fake_adapter_is_available_without_network() -> None:
+    chunks = [
+        chunk
+        async for chunk in DeterministicFakeModelAdapter().stream(
+            _invocation(),
+            base_url="https://fake.invalid/v1",
+            api_key="ignored-fake-credential",
+            cancellation=asyncio.Event(),
+        )
+    ]
+
+    assert "deterministic local response" in "".join(chunk.text for chunk in chunks)
+    assert chunks[-1].input_tokens is not None
+    assert chunks[-1].output_tokens is not None

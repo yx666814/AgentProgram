@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - name: Install backend
+        working-directory: backend
+        run: uv sync --locked
+      - name: Backend quality
+        working-directory: backend
+        run: |
+          uv run ruff format --check .
+          uv run ruff check .
+          uv run mypy src
+          uv run pytest -q
+
+  frontend:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.11.1"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend
+        working-directory: frontend
+        run: npm ci
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install chromium
+      - name: Frontend quality
+        working-directory: frontend
+        run: |
+          npm run contracts:verify
+          npm run lint
+          npm run typecheck
+          npm test
+          npm run test:e2e
+
+  windows-product:
+    runs-on: windows-latest
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.11.1"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - name: Install backend
+        working-directory: backend
+        run: uv sync --locked
+      - name: Install frontend
+        working-directory: frontend
+        run: npm ci
+      - name: Build installer
+        working-directory: frontend
+        run: npm run build:package
+      - name: Installed product E2E
+        working-directory: frontend
+        run: npm run test:product
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-product-evidence
+          path: |
+            frontend/release/XingXie-0.1.0-Setup.exe
+            frontend/test-results/product-e2e
+          if-no-files-found: warn

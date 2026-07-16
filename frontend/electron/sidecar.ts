@@ -15,6 +15,7 @@ import {
 const READY_TIMEOUT_MS = 30_000;
 const SHUTDOWN_TIMEOUT_MS = 8_000;
 const STDERR_LIMIT = 200;
+const STARTUP_DIAGNOSTIC_LINES = 20;
 
 interface SidecarCommand {
   command: string;
@@ -139,6 +140,24 @@ export class SidecarManager {
     this.sessionToken = null;
   }
 
+  private forgetChild(child: ChildProcessWithoutNullStreams): void {
+    if (this.child !== child) {
+      return;
+    }
+    this.child = null;
+    this.connectionPromise = null;
+    this.sessionToken = null;
+  }
+
+  private reportStartupFailure(error: Error): void {
+    process.stderr.write(
+      `XINGXIE_SIDECAR_START_FAILED ${JSON.stringify({
+        message: error.message,
+        stderr: this.stderrLines.slice(-STARTUP_DIAGNOSTIC_LINES),
+      })}\n`,
+    );
+  }
+
   private spawnSidecar(): Promise<SidecarConnection> {
     const command = sidecarCommand();
     const sessionToken = randomBytes(32).toString("base64url");
@@ -180,6 +199,8 @@ export class SidecarManager {
         }
         settled = true;
         clearTimeout(timer);
+        this.reportStartupFailure(error);
+        this.forgetChild(child);
         rejectConnection(error);
       };
       const timer = setTimeout(() => {
@@ -232,7 +253,9 @@ export class SidecarManager {
               `Sidecar exited before ready (code=${String(code)}, signal=${String(signal)})`,
             ),
           );
+          return;
         }
+        this.forgetChild(child);
       });
     });
   }

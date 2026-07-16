@@ -47,6 +47,7 @@ async def test_direct_project_preflight_checkpoint_restore_close_and_open(
     data_root = tmp_path / "data-root"
     workspace = tmp_path / "workspace"
     workspace.mkdir()
+    (workspace / "src").mkdir()
     tracked = workspace / "tracked.txt"
     tracked.write_text("original", encoding="utf-8")
     _migrate(data_root)
@@ -73,6 +74,7 @@ async def test_direct_project_preflight_checkpoint_restore_close_and_open(
             project_id = created_body["registration"]["project"]["id"]
             assert created_body["registration"]["project"]["status"] == "preflight_required"
             assert created_body["preflight_required"] is True
+            assert created_body["manifest"]["source_paths"] == ["src"]
 
             preflight = await client.post(
                 f"/api/v1/projects/{project_id}/preflight",

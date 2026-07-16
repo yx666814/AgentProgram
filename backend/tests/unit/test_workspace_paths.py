@@ -1,3 +1,5 @@
+import ctypes
+import os
 from pathlib import Path
 
 import pytest
@@ -10,11 +12,42 @@ from agent_platform.infrastructure.projects.paths import (
 )
 
 
+def _windows_short_path(path: Path) -> Path:
+    if os.name != "nt":
+        pytest.skip("Windows short paths are platform-specific")
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    get_short_path = kernel32.GetShortPathNameW
+    get_short_path.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32]
+    get_short_path.restype = ctypes.c_uint32
+    buffer = ctypes.create_unicode_buffer(32_768)
+    length = get_short_path(str(path), buffer, len(buffer))
+    if length == 0 or length >= len(buffer):
+        pytest.skip("Windows short path aliases are unavailable")
+    short_path = Path(buffer.value)
+    if short_path == path:
+        pytest.skip("8.3 short-name generation is disabled")
+    return short_path
+
+
 def test_direct_workspace_root_is_resolved_and_keyed(tmp_path: Path) -> None:
     resolved, key = validate_direct_workspace_root(tmp_path)
 
     assert resolved == tmp_path.resolve(strict=True)
     assert key
+
+
+def test_workspace_roots_accept_windows_short_path_alias(tmp_path: Path) -> None:
+    target = tmp_path / "long workspace root for short path validation"
+    target.mkdir()
+    short_target = _windows_short_path(target)
+
+    direct_root, direct_key = validate_direct_workspace_root(short_target)
+    managed_root, managed_key = create_managed_workspace_root(short_target, "project_123")
+
+    assert direct_root == target.resolve(strict=True)
+    assert direct_key
+    assert managed_root == (target / "workspaces" / "project_123").resolve(strict=True)
+    assert managed_key
 
 
 def test_direct_workspace_root_must_be_absolute(tmp_path: Path) -> None:
