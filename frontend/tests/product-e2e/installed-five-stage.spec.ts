@@ -295,7 +295,7 @@ async function launchInstalled(
   const page = await app.firstWindow();
   await page.waitForLoadState("domcontentloaded");
   await expect(page.getByRole("heading", { name: "启动星协" })).toBeVisible();
-  await expect(page.getByText("数据库就绪")).toBeVisible();
+  await expect(page.getByText("数据库就绪", { exact: true })).toBeVisible();
   return { app, driver: new DesktopDriver(page) };
 }
 
