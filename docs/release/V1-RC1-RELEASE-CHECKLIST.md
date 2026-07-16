@@ -46,6 +46,14 @@ CI 证据：GitHub Actions Run [`29491244086`](https://github.com/yx666814/Agent
 
 冻结 `frontend/contracts/SHA256SUMS.json` 的 SHA-256 为 `86C8868D2AF6D6682D47651210A9AF853AAFEAEE4CDDD1B3CD07EC0FB8F89C30`。
 
+### 指定 CI 候选分发产物
+
+| 来源 | 产物 | 字节 | SHA-256 | 签名 |
+| --- | --- | ---: | --- | --- |
+| GitHub Actions Run [`29492919058`](https://github.com/yx666814/AgentProgram/actions/runs/29492919058) / `windows-product-evidence` | `XingXie-1.0.0-rc.1-Setup.exe` | 121318449 | `D10CD232BCE9EDFAE4F22934C2EF1772D6EA9A775AC40B2ED20A585ADEC0DE66` | `NotSigned` |
+
+CI 候选产物与本地产物的大小和哈希不同，说明安装器构建不是字节级可复现的。发布校验必须绑定实际上传的文件；不得将一次构建的哈希用于另一次构建。
+
 ## 4. 用户必须完成的发布验收
 
 ### 未签名分发决策
@@ -53,8 +61,9 @@ CI 证据：GitHub Actions Run [`29491244086`](https://github.com/yx666814/Agent
 - [x] 用户于 2026-07-16 确认 RC1 暂不购买或配置 Authenticode 签名。
 - [x] 接受 Windows SmartScreen 可能显示“未知发布者”，并可能需要用户选择“更多信息 → 仍要运行”。
 - [x] 安装器、`星协.exe` 和 Sidecar 当前签名状态已如实记录为 `NotSigned`，不得宣称“已验证发布者”。
-- [ ] Release Notes 明确说明候选版未签名及其安装提示。
-- [ ] 对外提供安装器 SHA-256，并在上传前重新核对文件哈希与本表一致。
+- [x] Release Notes 明确说明候选版未签名及其安装提示。
+- [x] 指定 CI 候选产物的字节数、SHA-256、签名状态和来源 Run 已记录，并生成标准校验文件。
+- [ ] 对外上传安装器前，对实际上传文件重新计算 SHA-256，并确认与同批发布的校验文件一致。
 
 可信 Authenticode 签名已延期，不再作为本次 RC1 的发布硬门禁；未来若启用签名，凭据只能存放在受保护的签名服务或 GitHub Actions Secrets 中，不得提交到仓库或聊天。
 
