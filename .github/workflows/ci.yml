@@ -81,6 +81,6 @@ jobs:
         with:
           name: windows-product-evidence
           path: |
-            frontend/release/XingXie-0.1.0-Setup.exe
+            frontend/release/XingXie-1.0.0-rc.1-Setup.exe
             frontend/test-results/product-e2e
           if-no-files-found: warn

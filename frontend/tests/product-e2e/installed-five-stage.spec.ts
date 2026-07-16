@@ -799,7 +799,7 @@ test("installed desktop completes and recovers the V1 product workflow", async (
   expect(browserName).toBe("chromium");
   test.skip(process.platform !== "win32", "The installed product gate is Windows-only");
   const frontendRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-  const installer = join(frontendRoot, "release", "XingXie-0.1.0-Setup.exe");
+  const installer = join(frontendRoot, "release", "XingXie-1.0.0-rc.1-Setup.exe");
   expect(await exists(installer), "Build the NSIS installer before product E2E").toBe(true);
 
   const root = await mkdtemp(join(tmpdir(), "星协 阶段9 "));
