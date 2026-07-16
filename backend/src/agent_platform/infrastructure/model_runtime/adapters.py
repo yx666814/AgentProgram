@@ -212,6 +212,31 @@ class ScriptedFakeModelAdapter:
         )
 
 
+class DeterministicFakeModelAdapter:
+    @property
+    def provider(self) -> ModelProvider:
+        return ModelProvider.FAKE
+
+    async def stream(
+        self,
+        invocation: ModelInvocation,
+        *,
+        base_url: str,
+        api_key: str,
+        cancellation: asyncio.Event,
+    ) -> AsyncIterator[ModelChunk]:
+        del base_url, api_key
+        if cancellation.is_set():
+            raise asyncio.CancelledError
+        content = f"[Fake Model] {invocation.model}: deterministic local response."
+        yield ModelChunk(text=content)
+        input_characters = sum(len(message.content) for message in invocation.messages)
+        yield ModelChunk(
+            input_tokens=max(1, input_characters // 4),
+            output_tokens=max(1, len(content) // 4),
+        )
+
+
 async def _cancel_aware_lines(
     response: httpx.Response,
     cancellation: asyncio.Event,

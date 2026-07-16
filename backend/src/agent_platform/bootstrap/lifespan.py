@@ -44,6 +44,7 @@ from agent_platform.infrastructure.events import WebSocketEventPublisher
 from agent_platform.infrastructure.logging.configure import LoggingRuntime, configure_logging
 from agent_platform.infrastructure.model_runtime import (
     AnthropicAdapter,
+    DeterministicFakeModelAdapter,
     ModelOutputStore,
     OpenAICompatibleAdapter,
     UnavailableSecretStore,
@@ -390,6 +391,7 @@ def build_lifespan(
                 (
                     OpenAICompatibleAdapter(timeout_seconds=settings.model_http_timeout_seconds),
                     AnthropicAdapter(timeout_seconds=settings.model_http_timeout_seconds),
+                    DeterministicFakeModelAdapter(),
                 ),
                 model_output_store,
                 PromptComposer(PackageRoleCardLoader()),

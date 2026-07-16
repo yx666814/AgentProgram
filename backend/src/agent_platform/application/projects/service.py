@@ -738,6 +738,7 @@ async def _run_sync[ResultT](
 
 def _default_manifest(project_id: str, source_root: Path) -> ProjectManifest:
     instruction_paths = ("AGENTS.md",) if (source_root / "AGENTS.md").is_file() else ()
+    source_paths = tuple(path for path in ("src", "app", "lib") if (source_root / path).is_dir())
     build_commands: list[ProjectCommand] = []
     test_commands: list[ProjectCommand] = []
     typecheck_commands: list[ProjectCommand] = []
@@ -767,6 +768,7 @@ def _default_manifest(project_id: str, source_root: Path) -> ProjectManifest:
         schema_version=1,
         project_id=project_id,
         manifest_version=1,
+        source_paths=source_paths,
         excluded_paths=(".git", ".venv", "node_modules", "dist", "build", ".env"),
         instruction_paths=instruction_paths,
         build_commands=tuple(build_commands),

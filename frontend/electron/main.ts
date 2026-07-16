@@ -1,5 +1,5 @@
 import { stat } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import {
@@ -27,11 +27,28 @@ import { EncryptedSecretStore } from "./secret-store";
 import { SidecarManager } from "./sidecar";
 
 const MAX_NATIVE_TEXT = 4_096;
+const PRODUCT_E2E_FLAG = "--stage9-product-e2e";
+const PRODUCT_E2E_DATA_ROOT = "--stage9-e2e-data-root=";
+const PRODUCT_E2E_WORKSPACE = "--stage9-e2e-workspace=";
 let activeSidecar: SidecarManager | null = null;
 let activeSecretBridge: SecretBridgeServer | null = null;
 
 app.setName("星协");
-app.setPath("userData", join(app.getPath("appData"), "星协"));
+
+function resolveStage9Path(raw: string): string {
+  if (!process.argv.includes(PRODUCT_E2E_FLAG) || raw === "" || !isAbsolute(raw)) {
+    throw new Error("Stage 9 product E2E path is invalid");
+  }
+  return resolve(raw);
+}
+
+function stage9Path(prefix: string): string | null {
+  const raw = process.argv.find((argument) => argument.startsWith(prefix))?.slice(prefix.length);
+  return raw === undefined ? null : resolveStage9Path(raw);
+}
+
+const stage9DataRoot = stage9Path(PRODUCT_E2E_DATA_ROOT);
+app.setPath("userData", stage9DataRoot ?? join(app.getPath("appData"), "星协"));
 
 function boundedText(value: unknown, field: string): string {
   if (typeof value !== "string" || value.length === 0 || value.length > MAX_NATIVE_TEXT) {
@@ -327,6 +344,11 @@ async function bootstrap(): Promise<void> {
   const sidecar = new SidecarManager(secretBridgeConnection);
   activeSidecar = sidecar;
   const localPaths = new LocalPathPolicy();
+  for (const argument of process.argv) {
+    if (argument.startsWith(PRODUCT_E2E_WORKSPACE)) {
+      localPaths.allowSelectedRoot(resolveStage9Path(argument.slice(PRODUCT_E2E_WORKSPACE.length)));
+    }
+  }
   const backend = new BackendClient(sidecar, operationMap, localPaths);
   const diagnostics = new DiagnosticsExporter(
     backend,
