@@ -31,7 +31,9 @@
 - [x] Playwright 58 个测试通过。
 - [x] RC1 NSIS 安装器构建通过。
 - [x] RC1 安装版 product E2E 在普通 TEMP 与 Windows 8.3 短路径 TEMP 下通过。
-- [ ] 发布准备 PR 的 backend/frontend/windows-product CI 全绿。
+- [x] 发布准备 PR 的 backend/frontend/windows-product CI 全绿。
+
+CI 证据：GitHub Actions Run [`29491244086`](https://github.com/yx666814/AgentProgram/actions/runs/29491244086) 于 2026-07-16 完成，`backend`、`frontend`、`windows-product` 均为 `success`；其中 Windows 安装器构建、安装后产品 E2E 与 artifact 上传全部通过。
 
 ## 3. RC1 本地产物证据
 
