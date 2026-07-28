@@ -228,13 +228,43 @@ class DeterministicFakeModelAdapter:
         del base_url, api_key
         if cancellation.is_set():
             raise asyncio.CancelledError
-        content = f"[Fake Model] {invocation.model}: deterministic local response."
+        content = _deterministic_fake_content(invocation)
         yield ModelChunk(text=content)
         input_characters = sum(len(message.content) for message in invocation.messages)
         yield ModelChunk(
             input_tokens=max(1, input_characters // 4),
             output_tokens=max(1, len(content) // 4),
         )
+
+
+def _deterministic_fake_content(invocation: ModelInvocation) -> str:
+    prompt = invocation.model_dump_json()
+    if "AGENTPROGRAM_STAGE_EXECUTION_PLAN_V1" not in prompt:
+        return f"[Fake Model] {invocation.model}: deterministic local response."
+    if "independent_review" in prompt:
+        return "The execution plan is deterministic, scoped, and suitable for the fake-model run."
+    stage = next(
+        (
+            candidate
+            for candidate in ("planner", "designer", "builder", "reviewer", "deployer")
+            if f'\\"stage\\":\\"{candidate}\\"' in prompt or f'"stage":"{candidate}"' in prompt
+        ),
+        "planner",
+    )
+    label = stage.title()
+    return json.dumps(
+        {
+            "schema_version": 1,
+            "summary": f"Deterministic {label} delivery",
+            "artifact_content": (
+                f"# {label} Deliverable\n\n"
+                "Generated and reconciled by the deterministic fake model."
+            ),
+            "actions": [],
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
 
 
 async def _cancel_aware_lines(

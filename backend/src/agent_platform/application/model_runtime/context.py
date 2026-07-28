@@ -162,6 +162,7 @@ class PromptComposer:
         instruction: str,
         runtime_state: str,
         project_instructions: tuple[str, ...] = (),
+        project_file_content: str = "",
         review_material: str | None = None,
         model: str,
         max_output_tokens: int,
@@ -176,7 +177,7 @@ class PromptComposer:
             PromptLayer.PROJECT_INSTRUCTIONS: "\n\n".join(project_instructions),
             PromptLayer.RUNTIME_STATE: runtime_state,
             PromptLayer.USER_MESSAGE: instruction,
-            PromptLayer.PROJECT_FILE_CONTENT: "",
+            PromptLayer.PROJECT_FILE_CONTENT: project_file_content,
         }
         system_sections = [
             f"[{layer.value}]\n{layer_content[layer]}"
@@ -194,6 +195,11 @@ class PromptComposer:
         user_content = instruction
         if review_material is not None:
             user_content = f"{instruction}\n\nMaterial to evaluate or reconcile:\n{review_material}"
+        if project_file_content:
+            user_content = (
+                f"{user_content}\n\n"
+                f"[{PromptLayer.PROJECT_FILE_CONTENT.value}]\n{project_file_content}"
+            )
         messages.append(ModelMessage(role=ModelMessageRole.USER, content=user_content))
         invocation = ModelInvocation(
             model=model,

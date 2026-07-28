@@ -274,6 +274,8 @@ class AgentRuntimeService:
         *,
         instruction: str,
         correlation_id: str,
+        execution_contract: str | None = None,
+        project_file_content: str = "",
     ) -> AsyncIterator[AgentStreamFrame]:
         cancellation = await self._registry.register(run_id)
         sequence = 0
@@ -307,8 +309,9 @@ class AgentRuntimeService:
                 stage=stage,
                 context=context,
                 instruction=instruction,
-                runtime_state="primary_initial_draft",
+                runtime_state=_runtime_state("primary_initial_draft", execution_contract),
                 project_instructions=project_instructions,
+                project_file_content=project_file_content,
                 review_material=None,
                 cancellation=cancellation,
                 starting_sequence=sequence,
@@ -342,8 +345,9 @@ class AgentRuntimeService:
                     stage=stage,
                     context=context,
                     instruction=instruction,
-                    runtime_state="independent_review",
+                    runtime_state=_runtime_state("independent_review", execution_contract),
                     project_instructions=project_instructions,
+                    project_file_content=project_file_content,
                     review_material=p0.content,
                     cancellation=cancellation,
                     starting_sequence=sequence,
@@ -388,8 +392,9 @@ class AgentRuntimeService:
                     stage=stage,
                     context=context,
                     instruction=instruction,
-                    runtime_state="review_reconciliation",
+                    runtime_state=_runtime_state("review_reconciliation", execution_contract),
                     project_instructions=project_instructions,
+                    project_file_content=project_file_content,
                     review_material=material,
                     cancellation=cancellation,
                     starting_sequence=sequence,
@@ -592,6 +597,7 @@ class AgentRuntimeService:
         instruction: str,
         runtime_state: str,
         project_instructions: tuple[str, ...],
+        project_file_content: str,
         review_material: str | None,
         cancellation: asyncio.Event,
         starting_sequence: int,
@@ -605,6 +611,7 @@ class AgentRuntimeService:
             instruction=instruction,
             runtime_state=runtime_state,
             project_instructions=project_instructions,
+            project_file_content=project_file_content,
             review_material=review_material,
             model=profile.model,
             max_output_tokens=self._settings.model_max_output_tokens,
@@ -922,6 +929,12 @@ def _run_completed_frame(run: AgentRun, sequence: int) -> AgentStreamFrame:
             "output_bytes": run.final_output_bytes,
         },
     )
+
+
+def _runtime_state(state: str, execution_contract: str | None) -> str:
+    if execution_contract is None:
+        return state
+    return f"{state}\n\n{execution_contract}"
 
 
 def _load_project_instructions(
