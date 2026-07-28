@@ -201,6 +201,58 @@
   font-size: 12px;
 }
 
+.mode-segmented-control {
+  display: grid;
+  width: min(100%, 210px);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 2px;
+  border: 1px solid var(--border-default);
+  border-radius: 7px;
+  background: var(--surface-control);
+}
+
+.mode-segmented-control button {
+  min-width: 0;
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: 600 11px/1.2 var(--font-ui);
+  transition:
+    background-color 90ms ease,
+    color 90ms ease,
+    box-shadow 90ms ease;
+}
+
+.mode-segmented-control button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.mode-segmented-control button:active:not(:disabled) {
+  background: var(--surface-pressed);
+  box-shadow: inset 0 1px 3px var(--shadow-pressed);
+}
+
+.mode-segmented-control button[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent-default);
+  box-shadow: inset 0 0 0 1px var(--accent-border);
+}
+
+.mode-segmented-control button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.mode-segmented-control button:disabled {
+  color: var(--text-disabled);
+  cursor: not-allowed;
+}
+
 .api-error-state code {
   margin-left: auto;
   font-family: var(--font-mono);
@@ -421,7 +473,7 @@ select:focus-visible {
 
 .overview-metrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 12px;
 }
@@ -452,6 +504,10 @@ select:focus-visible {
 .overview-metrics strong {
   margin: 6px 0;
   font-size: 16px;
+}
+
+.workflow-mode-metric .mode-segmented-control {
+  margin: 7px 0 6px;
 }
 
 .stage-timeline {

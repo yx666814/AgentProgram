@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { expect, it } from "vitest";
 
 import { BackendProvider } from "../../src/api/backend-context";
+import { ProjectOverviewPage } from "../../src/features/overview/project-overview-page";
 import { PreflightPage } from "../../src/features/preflight/preflight-page";
 import { ProjectsPage } from "../../src/features/projects/projects-page";
 import { createFakeDesktopPort, reply } from "../support/fake-desktop-port";
@@ -117,4 +118,56 @@ it("requires explicit warning acknowledgement before creating and starting a wor
     "create_workflow_api_v1_projects__project_id__workflows_post",
     "start_workflow_api_v1_workflows__workflow_id__start_post",
   ]);
+});
+
+it("changes the workflow execution mode through the project overview", async () => {
+  const user = userEvent.setup();
+  const registration = projectRegistration("ready", 3);
+  let current = workflowSnapshot("running", 2);
+  const port = createFakeDesktopPort({
+    query(request) {
+      switch (request.operationId) {
+        case "get_project_api_v1_projects__project_id__get":
+          return reply(request, registration);
+        case "list_workflows_api_v1_projects__project_id__workflows_get":
+          return reply(request, { workflows: [current.workflow] });
+        case "get_workflow_api_v1_workflows__workflow_id__get":
+          return reply(request, current);
+        default:
+          throw new Error(`Unexpected query ${request.operationId}`);
+      }
+    },
+    command(request) {
+      if (request.operationId !== "set_workflow_mode_api_v1_workflows__workflow_id__mode_post") {
+        throw new Error(`Unexpected command ${request.operationId}`);
+      }
+      current = {
+        ...current,
+        workflow: { ...current.workflow, execution_mode: "autonomous", version: 3 },
+      };
+      return reply(request, current.workflow);
+    },
+  });
+
+  render(
+    <BackendProvider port={port}>
+      <MemoryRouter initialEntries={["/projects/project_demo"]}>
+        <Routes>
+          <Route path="/projects/:projectId" element={<ProjectOverviewPage />} />
+        </Routes>
+      </MemoryRouter>
+    </BackendProvider>,
+  );
+
+  const mode = await screen.findByRole("group", { name: "执行模式" });
+  const autonomous = screen.getByRole("button", { name: "Autonomous" });
+  expect(mode).toContainElement(autonomous);
+  expect(autonomous).toHaveAttribute("aria-pressed", "false");
+  await user.click(autonomous);
+  expect(autonomous).toHaveAttribute("aria-pressed", "true");
+  expect(port.calls.commands[0]).toMatchObject({
+    operationId: "set_workflow_mode_api_v1_workflows__workflow_id__mode_post",
+    parameters: { path: { workflow_id: "workflow_demo" } },
+    payload: { mode: "autonomous", expected_version: 2 },
+  });
 });

@@ -906,6 +906,20 @@ async function completeStageThroughUi(
   }
 }
 
+async function setModeThroughUi(
+  driver: DesktopDriver,
+  projectId: string,
+  mode: "manual" | "autonomous",
+): Promise<void> {
+  await driver.navigate(`/projects/${projectId}`);
+  const group = driver.page.getByRole("group", { name: "执行模式" });
+  const label = mode === "manual" ? "Manual" : "Autonomous";
+  const button = group.getByRole("button", { name: label });
+  await expect(button).toBeEnabled();
+  await button.click();
+  await expect(button).toHaveAttribute("aria-pressed", "true");
+}
+
 async function captureInstalledViews(
   driver: DesktopDriver,
   projectId: string,
@@ -1220,7 +1234,7 @@ test("installed desktop completes and recovers the V1 product workflow", async (
       "pass",
       "pending",
     );
-    await driver.setMode(orchestratedWorkflowId, "autonomous");
+    await setModeThroughUi(driver, orchestratedProjectId, "autonomous");
     await completeStageThroughUi(
       driver,
       orchestratedProjectId,
@@ -1237,7 +1251,7 @@ test("installed desktop completes and recovers the V1 product workflow", async (
       "warning",
       "rewrite_required",
     );
-    await driver.setMode(orchestratedWorkflowId, "manual");
+    await setModeThroughUi(driver, orchestratedProjectId, "manual");
     await completeStageThroughUi(
       driver,
       orchestratedProjectId,

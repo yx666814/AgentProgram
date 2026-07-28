@@ -24,6 +24,7 @@ export type Workflow = components["schemas"]["Workflow"];
 export type WorkflowList = components["schemas"]["WorkflowListResponse"];
 export type WorkflowSnapshot = components["schemas"]["WorkflowSnapshot"];
 export type WorkflowAction = "pause" | "resume" | "stop" | "abandon";
+export type ExecutionMode = components["schemas"]["ExecutionMode"];
 export type Stage = components["schemas"]["Stage"];
 export type StageRunState = components["schemas"]["StageRunState"];
 export type StageTransitionResult = components["schemas"]["StageTransitionResponse"];
@@ -429,6 +430,26 @@ export class BackendApi {
         {
           parameters: { path: { workflow_id: workflowId, action } },
           payload: {
+            expected_version: expectedVersion,
+            correlation_id: this.correlationIdFactory(),
+          },
+        },
+      )
+    ).payload;
+  }
+
+  async setWorkflowMode(
+    workflowId: string,
+    mode: ExecutionMode,
+    expectedVersion: number,
+  ): Promise<Workflow> {
+    return (
+      await this.client.command<Workflow>(
+        "set_workflow_mode_api_v1_workflows__workflow_id__mode_post",
+        {
+          parameters: { path: { workflow_id: workflowId } },
+          payload: {
+            mode,
             expected_version: expectedVersion,
             correlation_id: this.correlationIdFactory(),
           },

@@ -1,7 +1,12 @@
 import { useCallback, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-import type { Workflow, WorkflowAction, WorkflowSnapshot } from "../../api/backend-api";
+import type {
+  ExecutionMode,
+  Workflow,
+  WorkflowAction,
+  WorkflowSnapshot,
+} from "../../api/backend-api";
 import { useBackend } from "../../api/backend-context";
 import { ApiErrorState } from "../../components/api-error-state";
 import { Button } from "../../components/button";
@@ -20,7 +25,7 @@ export function ProjectOverviewPage() {
   const { api, events, port } = useBackend();
   const navigate = useNavigate();
   const [commandError, setCommandError] = useState<unknown>(null);
-  const [command, setCommand] = useState<WorkflowAction | "close" | null>(null);
+  const [command, setCommand] = useState<WorkflowAction | "close" | "mode" | null>(null);
 
   const loadPage = useCallback(async () => {
     if (api === null) {
@@ -58,6 +63,29 @@ export function ProjectOverviewPage() {
       await api.controlWorkflow(
         resource.data.snapshot.workflow.id,
         action,
+        resource.data.snapshot.workflow.version,
+      );
+      await reload();
+    } catch (error) {
+      setCommandError(error);
+    } finally {
+      setCommand(null);
+    }
+  };
+
+  const setWorkflowMode = async (mode: ExecutionMode) => {
+    if (api === null || resource.phase !== "ready" || resource.data.snapshot === null) {
+      return;
+    }
+    if (mode === resource.data.snapshot.workflow.execution_mode) {
+      return;
+    }
+    setCommand("mode");
+    setCommandError(null);
+    try {
+      await api.setWorkflowMode(
+        resource.data.snapshot.workflow.id,
+        mode,
         resource.data.snapshot.workflow.version,
       );
       await reload();
@@ -141,6 +169,23 @@ export function ProjectOverviewPage() {
             <article><span>工作流</span><strong>{snapshot.workflow.title}</strong><small>{workflowStatusPresentation[snapshot.workflow.status].label}</small></article>
             <article><span>当前阶段</span><strong>{snapshot.workflow.current_stage}</strong><small>版本 {String(snapshot.workflow.version)}</small></article>
             <article><span>Workspace</span><strong>{project.workspace.mode}</strong><small title={project.workspace.root_path}>{project.workspace.root_path}</small></article>
+            <article className="workflow-mode-metric">
+              <span>执行模式</span>
+              <div aria-label="执行模式" className="mode-segmented-control" role="group">
+                {(["manual", "autonomous"] as const).map((mode) => (
+                  <button
+                    aria-pressed={snapshot.workflow.execution_mode === mode}
+                    disabled={command !== null || terminalWorkflowStates.has(snapshot.workflow.status)}
+                    key={mode}
+                    onClick={() => { void setWorkflowMode(mode); }}
+                    type="button"
+                  >
+                    {mode === "manual" ? "Manual" : "Autonomous"}
+                  </button>
+                ))}
+              </div>
+              <small>Workflow v{String(snapshot.workflow.version)}</small>
+            </article>
           </div>
 
           <section className="data-panel stage-timeline" aria-labelledby="stage-timeline-title">
