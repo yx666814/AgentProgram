@@ -1,7 +1,7 @@
 # AgentProgram V1 自动编排层与发布阻塞说明
 
 > 文档版本：v1
-> 状态：本地技术门禁已解除；当前 PR CI、真实模型、物理桌面和独立审查待完成
+> 状态：自动编排技术门禁与当前 PR CI 已解除；真实模型、物理桌面和独立审查待完成
 > 适用版本：`1.0.0-rc.1` 及后续 RC
 > 依据：`docs/PROJECT-PLAN.md`、Stage 0-5 冻结领域规则与桌面端安装版验收结果
 > 实现提交：`1c20a17`、`cc0df5c`、`1070bee`、`2efbeb8`、`3f58d6a`、`2e079b3`
@@ -10,7 +10,7 @@
 
 本文建立时发现的自动编排发布阻塞已经解除。后端现已通过一个高层 Orchestration Application Service 协调工作流、AgentRun、ToolCall、ArtifactVersion、Quality Gate、Approval/Policy、Checkpoint 与 Handoff；正式 Renderer 从 Stage 页面调用高层流式命令，不再由前端或测试替用户逐条拼接底层业务命令。
 
-这次实现没有重写 Stage 0-5。Orchestration Application Service 只按既有领域规则协调现有服务，Backend Main Process 仍是状态、权限、文件与审计的唯一权威。`1.0.0-rc.1` 仍不是正式 V1：真实 OpenAI Compatible/Anthropic、物理 Windows 桌面、当前 PR CI 和独立审查属于后续发布验收，不应与“自动编排缺失”混为同一个阻塞项。
+这次实现没有重写 Stage 0-5。Orchestration Application Service 只按既有领域规则协调现有服务，Backend Main Process 仍是状态、权限、文件与审计的唯一权威。`1.0.0-rc.1` 仍不是正式 V1：真实 OpenAI Compatible/Anthropic、物理 Windows 桌面和独立审查属于后续发布验收，不应与“自动编排缺失”混为同一个阻塞项。
 
 ## 2. 用户级闭环
 
@@ -148,11 +148,12 @@ Accept: application/x-ndjson
 
 本地技术门禁据此解除。详细测试数字、契约哈希、安装包身份和剩余发布项见 `docs/frontend/FRONTEND-STAGE9-ACCEPTANCE-v1.md`、`docs/release/V1-RC1-RELEASE-CHECKLIST.md` 与 `docs/release/V1-RC1-MANUAL-ACCEPTANCE.md`。
 
+远端证据：[GitHub Actions Run `30400155883`](https://github.com/yx666814/AgentProgram/actions/runs/30400155883) 在提交 `600c8a7` 上完成，`backend`、`frontend`、`windows-product` 均为 `success`；其中 Windows job 的安装器构建、安装版产品 E2E（`1 passed`）和产品证据摘要均成功。
+
 ## 8. 剩余发布边界
 
 以下事项尚未完成，但不再表示自动编排层缺失：
 
-- 当前分支 PR 的 `backend`、`frontend`、`windows-product` 三个 job 全绿；
 - OpenAI Compatible 与 Anthropic 真实模型的五阶段、取消、错误恢复和密钥脱敏人工验收；
 - 物理 Windows 桌面的 DPI、多显示器、键盘、系统对话框、卸载与重装人工验收；
 - 独立审查和零已知 P0/P1 复核。

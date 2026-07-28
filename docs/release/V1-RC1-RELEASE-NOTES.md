@@ -86,7 +86,7 @@ Get-FileHash .\XingXie-1.0.0-rc.1-Setup.exe -Algorithm SHA256
 - Anthropic 真实服务的连接、流式、取消、错误恢复和五阶段流程尚待人工验收。
 - API Key 不进入数据库、日志、事件、诊断包或截图的真实服务复核尚待完成。
 - 100%、125%、150%、200% DPI，1080p/2K/4K 和多显示器混合缩放尚待物理桌面验收。
-- 当前分支仍需 GitHub Actions 三个 job 全绿并完成独立 PR 审查。
+- 当前 PR 三个 GitHub Actions job 已全绿；独立 PR 审查仍待完成。
 - RC 版本可能包含尚未发现的问题，不建议替代正式版本用于不可回滚的生产工作。
 
 ## 7. V1 不包含的功能
@@ -109,6 +109,8 @@ Get-FileHash .\XingXie-1.0.0-rc.1-Setup.exe -Algorithm SHA256
 - Playwright：58 passed；
 - 最终安装器 product E2E：1 passed。
 
-历史 GitHub Actions Run [`29492919058`](https://github.com/yx666814/AgentProgram/actions/runs/29492919058) 只证明合并前阶段 9 基线，不包含本轮自动编排实现。当前分支推送后的 PR checks 才是本候选源码的远端证据。
+GitHub Actions Run [`30400155883`](https://github.com/yx666814/AgentProgram/actions/runs/30400155883) 在提交 `600c8a7` 上完成，`backend`、`frontend`、`windows-product` 均为 `success`；Windows job 的安装器构建、安装版 product E2E（`1 passed`）和证据摘要成功。仓库历史 artifact 已占满配额，因此本 Run 没有生成可下载 artifact；本地候选安装器身份仍以上文和同批校验文件为准。
+
+历史 Run `29492919058` 只证明合并前阶段 9 基线，不包含本轮自动编排实现。
 
 正式 `1.0.0`、`v1.0.0` Tag、GitHub Release 或公开安装器上传均不在当前授权范围内，必须在剩余人工验收完成后另行确认。

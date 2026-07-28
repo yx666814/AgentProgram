@@ -12,7 +12,7 @@
 > Warning 恢复提交：`3f58d6a`
 > 双模式 UI 提交：`2e079b3`
 > 契约变更：`FRONTEND-CONTRACT-CHANGE-REQUEST-v7.md`
-> 状态：自动编排本地安装版产品门禁通过；当前 PR CI、真实模型、物理桌面和独立审查待完成；RC1 未签名风险已由用户接受，不宣称 V1 已发布
+> 状态：自动编排本地与当前 PR 三项产品门禁通过；真实模型、物理桌面和独立审查待完成；RC1 未签名风险已由用户接受，不宣称 V1 已发布
 
 ## 1. 验收结论
 
@@ -33,7 +33,7 @@
 - Windows 8.3 短路径（本地复现 `AGENTP~1`、Runner 使用 `RUNNER~1`）下，日志、Managed/Direct Workspace 和 Checkpoint 均按真实目录校验，不把安全短名误判为 link/reparse point；
 - S00-S09 页面从真实后端读取状态，页面中不存在 `fixtureDesktopPort`。
 
-当前安装器 `Get-AuthenticodeSignature` 结果为 `NotSigned`，用户已确认 RC1 暂不购买或配置 Authenticode 签名并接受相应风险。签名因此不再是本次 RC1 的硬门禁，但未签名状态必须持续披露。PR 的 GitHub Actions 只有在推送后才能产生当前源码的独立 Windows Runner 结果。因此本文件记录“阶段 9 本地产品门禁通过”，不是“星协 V1 已正式发布”。
+当前安装器 `Get-AuthenticodeSignature` 结果为 `NotSigned`，用户已确认 RC1 暂不购买或配置 Authenticode 签名并接受相应风险。签名因此不再是本次 RC1 的硬门禁，但未签名状态必须持续披露。[GitHub Actions Run `30400155883`](https://github.com/yx666814/AgentProgram/actions/runs/30400155883) 已在独立 Windows Runner 上验证当前实现的三个 job。本文件记录“阶段 9 自动化产品门禁通过”，不是“星协 V1 已正式发布”。
 
 ## 2. 交接清单逐项结果
 
@@ -133,6 +133,8 @@ npm run test:product
 - 安装版 product E2E：普通 TEMP 与 Windows 8.3 短路径 TEMP 均为 `1 passed`；
 - 契约覆盖：69/41/5/23 通过。
 
+远端 Run `30400155883`（提交 `600c8a7`）结果：`backend = success`、`frontend = success`、`windows-product = success`。Windows job 重新构建安装器并完成安装版 product E2E：`1 passed (1.8m)`；产品证据摘要步骤成功。仓库历史 artifact 占满配额，因此短期测试证据 artifact 没有实际生成；该传输告警不替代也不否定已成功的构建与产品测试。
+
 本机 electron-builder 在线分发包获取没有进展，因此最终 NSIS 步骤使用本机已缓存且版本完全相同的 `electron-v43.1.1-win32-x64.zip`；electron-builder 明确输出 `using custom electronDist zip file`。CI 的全新 Windows Runner 仍执行 `npm run build:package`，用于独立验证在线构建路径。
 
 生产包扫描：
@@ -163,14 +165,14 @@ npm run test:product
 | R15 | REST、WebSocket、重放、本地认证 | S00、S09 | 冻结契约、BackendClient、EventProxy | 动态本地认证、崩溃后真实持久事件重放 | 通过 |
 | R16 | Renderer、Preload、安全桥、桌面交互 | S00-S09 | DesktopPort v3、CSP、IPC 白名单 | 安装版 14 张页面证据，无 Fixture 文案 | 通过 |
 | R17 | Sidecar、动态端口、SecretStore、Windows 包、备份 | S00、S08、S09 | Main/Sidecar/DPAPI/NSIS | 中文空格安装、DPAPI Fake refs、卸载重装数据保留 | 通过 |
-| R18 | 安装环境五阶段 Fake Model E2E | S00-S09 | 正式安装包 + Fake Adapter + Orchestration | `installed-five-stage.spec.ts`、普通/8.3 TEMP、用户可见自动编排与恢复 | 本地通过；远端以当前 HEAD PR check 为准 |
-| R19 | CI、静态、类型、安全、回归矩阵 | S09 | `.github/workflows/ci.yml` | backend/frontend/windows-product 三个 Windows job | 工作流已实现；远端以当前 HEAD PR check 为准 |
+| R18 | 安装环境五阶段 Fake Model E2E | S00-S09 | 正式安装包 + Fake Adapter + Orchestration | `installed-five-stage.spec.ts`、普通/8.3 TEMP、用户可见自动编排与恢复 | 本地通过；Run `30400155883` 远端通过 |
+| R19 | CI、静态、类型、安全、回归矩阵 | S09 | `.github/workflows/ci.yml` | backend/frontend/windows-product 三个 Windows job | Run `30400155883` 三项均通过 |
 
 ## 7. V1 完成定义追踪
 
 | ID | 完成定义 | 当前证据 | 结论 |
 | --- | --- | --- | --- |
-| G01 | 阶段 0-9 全部门禁通过 | 阶段 0-8 已合并；阶段 9 本地普通/8.3 TEMP 与自动编排 product E2E 通过 | PR CI、真实模型、物理桌面和独立审查待完成 |
+| G01 | 阶段 0-9 全部门禁通过 | 阶段 0-8 已合并；阶段 9 本地普通/8.3 TEMP、自动编排 product E2E 与当前 PR CI 通过 | 真实模型、物理桌面和独立审查待完成 |
 | G02 | Manual/Autonomous 五阶段完整运行 | 安装版正式 UI 切换、人工审批、自动 Handoff、Warning 阻断与返回讨论 | 通过 |
 | G03 | 需求到审计可追踪 | PROJECT-PLAN、v1 设计、v1-v7 Change Request、阶段 7-9 验收 | 通过 |
 | G04 | 权限、路径、模型、工具、SecretStore、进程无已知绕过 | 冻结 StageContract、DPAPI、LocalPathPolicy、短路径与 reparse 分离校验、强杀证据 | 本地通过 |
@@ -178,7 +180,7 @@ npm run test:product
 | G06 | 密钥和敏感数据不进入 DB/日志/事件/诊断 | 阶段 8 脱敏扫描、DPAPI、阶段 9隔离数据根 | 本地通过 |
 | G07 | 安装包无系统 Python、动态端口、备份恢复 | 阶段 8安装门禁 + 阶段 9卸载重装 | 通过 |
 | G08 | 真实小项目产出代码、测试、构建和交付说明 | ToolCall 生成并由外部 Node 验证 | 通过 |
-| G09 | 零已知 P0/P1、完整测试和 CI | 当前无已知 P0/P1；本地全量已通过 | 远端以当前 HEAD PR check 为准 |
+| G09 | 零已知 P0/P1、完整测试和 CI | 当前无已知 P0/P1；本地全量与 Run `30400155883` 三项 CI 通过 | 通过 |
 | G10 | 正式前端、Electron、Windows 安装包 | 安装版 S00-S09 和 NSIS 已完成；未签名状态已披露并由用户接受 | RC1 本地通过；公开分发未授权 |
 | G11 | 所有可用前端功能由真实后端驱动 | 冻结 operationId、生产扫描、安装版无 Fixture、正式编排走后端高层命令 | 本地通过 |
 
@@ -193,7 +195,6 @@ npm run test:product
 
 当前剩余发布验收项：
 
-- 推送分支并取得 GitHub Actions backend、frontend、windows-product 三个 job 全绿；
 - 完成 PR 独立审查并合并；
 - 对外发布前按发布环境进行真实 OpenAI Compatible/Anthropic 手工验收；
 - 多物理显示器移动和真实系统 DPI 切换保留为发布前人工桌面检查，不以浏览器缩放证据替代。
@@ -206,3 +207,4 @@ RC1 暂不购买或配置 Authenticode 签名；`NotSigned` 是已接受并必�
 | --- | --- | --- |
 | v1 | 2026-07-16 | 建立阶段 9 安装版五阶段 Fake Model E2E、崩溃恢复、事件重放、卸载重装、契约 Hash、总需求追踪与发布阻塞项。 |
 | v1（更新） | 2026-07-29 | 保持正式文档版本 v1，追加高层自动编排、Warning 恢复、正式 UI 模式切换、当前测试计数、契约 Hash、安装包身份与未签名 RC1 决策。 |
+| v1（CI 证据） | 2026-07-29 | 记录 Run `30400155883` 的 backend/frontend/windows-product 全绿、安装版 product E2E 与 artifact 配额边界。 |

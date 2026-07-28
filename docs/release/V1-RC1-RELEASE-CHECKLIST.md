@@ -6,7 +6,7 @@
 > 合并基线：`f060239be993bd2a880619032cdf317048cd9ab1`
 > 编排实现提交：`3f58d6a19d35fe849764202fec095fd906137372`
 > 双模式 UI 提交：`2e079b3024c967900b015ebe13a510ec2cb13f50`
-> 状态：自动编排发布阻塞已由本地安装版产品门禁解除；真实模型、物理桌面、当前 PR CI 与独立审查仍待完成，因此不是正式 V1 发布。
+> 状态：自动编排发布阻塞与当前 PR CI 已解除；真实模型、物理桌面与独立审查仍待完成，因此不是正式 V1 发布。
 
 ## 1. 版本锁定
 
@@ -58,9 +58,11 @@ userVisibleOrchestration = true
 - [x] RC1 NSIS 安装器重新构建通过。
 - [x] 当前安装器的用户可见编排 product E2E：1 passed。
 - [x] 既有阶段 9 基线的普通 TEMP、Windows 8.3 短路径、卸载重装与恢复门禁保持通过。
-- [ ] 当前分支 PR 的 backend/frontend/windows-product CI 全绿；Job Summary 必须保留安装器 Hash 和产品报告关键计数，测试证据 artifact 为短期尽力上传。
+- [x] 当前分支 PR 的 backend/frontend/windows-product CI 全绿；Run `30400155883` 的 Job Summary 保留安装器 Hash 和产品报告关键计数，测试证据 artifact 因历史存储配额未实际生成。
 
 历史 CI 基线：GitHub Actions Run [`29492919058`](https://github.com/yx666814/AgentProgram/actions/runs/29492919058) 曾验证合并前阶段 9 安装版链路。该 Run 不包含本轮自动编排实现，不能作为当前候选安装器的分发身份。
+
+当前 PR 证据：GitHub Actions Run [`30400155883`](https://github.com/yx666814/AgentProgram/actions/runs/30400155883) 在提交 `600c8a7` 上完成，`backend`、`frontend`、`windows-product` 均为 `success`；安装器构建和安装版 product E2E（`1 passed`）通过。仓库历史 artifact 配额已满，本 Run 没有可下载 artifact，不能把 Job Summary 中的 CI 安装器身份当成公开下载项。
 
 ## 4. 当前本地 RC1 产物证据
 
@@ -114,9 +116,9 @@ userVisibleOrchestration = true
 
 ### 审查与分发
 
-- [ ] 当前 PR 的三个 CI job 全绿。
+- [x] 当前 PR 的三个 CI job 全绿（Run `30400155883`）。
 - [ ] PR 由独立审查者确认。
-- [ ] 零已知 P0/P1。
+- [x] 当前零已知 P0/P1。
 - [ ] Release Notes、已知问题和回滚步骤与实际上传文件一致。
 
 详细操作见 `docs/release/V1-RC1-MANUAL-ACCEPTANCE.md`。
