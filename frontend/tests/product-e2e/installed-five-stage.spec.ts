@@ -795,19 +795,41 @@ async function completeStageThroughUi(
   expectedGate: "pass" | "warning",
   expectedResolution: "automatic" | "pending" | "rewrite_required",
 ): Promise<void> {
+  await driver.navigate(`/projects/${projectId}`);
   await driver.navigate(`/projects/${projectId}/stages/${stage}`);
   await expect(
     driver.page.getByRole("heading", { name: STAGE_LABELS[stage], exact: true }),
   ).toBeVisible();
+  const returnToDiscussion = driver.page.getByRole("button", { name: "返回讨论" });
+  if (await returnToDiscussion.isVisible()) {
+    await returnToDiscussion.click();
+    await expect(
+      driver.page.locator(".stage-summary-grid article").first().getByText(
+        "discussing",
+        { exact: true },
+      ),
+    ).toBeVisible();
+  }
   await driver.page.getByLabel("AgentRun 指令").fill(
     `Complete the ${stage} stage through the installed user-visible orchestration path.`,
   );
   const runButton = driver.page.getByRole("button", { name: "运行并完成本阶段" });
   await expect(runButton).toBeEnabled();
   await runButton.click();
-  await expect(driver.page.getByText("正式编排已到达后端确认的终态。")).toBeVisible({
-    timeout: 180_000,
-  });
+  const expectedStageState =
+    expectedResolution === "pending"
+      ? "waiting_approval"
+      : expectedResolution === "rewrite_required"
+        ? expectedGate === "warning"
+          ? "warning_blocked"
+          : "needs_fix"
+        : "completed";
+  await expect(
+    driver.page.locator(".stage-summary-grid article").first().getByText(
+      expectedStageState,
+      { exact: true },
+    ),
+  ).toBeVisible({ timeout: 180_000 });
 
   const snapshot = await driver.snapshot(workflowId);
   const stageRun = records(snapshot.stage_runs, "orchestrated stage runs").find(

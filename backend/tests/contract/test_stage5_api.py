@@ -450,5 +450,20 @@ async def test_autonomous_warning_blocks_and_creates_rewrite_request(tmp_path: P
             assert body["handoff"] is None
             assert body["change_request"]["target_stage"] == "builder"
             workflow = await client.get(f"/api/v1/workflows/{workflow_id}", headers=AUTHORIZATION)
-            assert workflow.json()["workflow"]["status"] == "warning_blocked"
-            assert workflow.json()["stage_runs"][2]["state"] == "warning_blocked"
+            workflow_body = workflow.json()
+            assert workflow_body["workflow"]["status"] == "warning_blocked"
+            assert workflow_body["stage_runs"][2]["state"] == "warning_blocked"
+
+            resumed = await client.post(
+                f"/api/v1/workflows/{workflow_id}/stages/builder/transition",
+                headers=AUTHORIZATION,
+                json={
+                    "target_state": "discussing",
+                    "expected_workflow_version": workflow_body["workflow"]["version"],
+                    "expected_stage_version": workflow_body["stage_runs"][2]["version"],
+                    "correlation_id": "warning_return_to_discussion",
+                },
+            )
+            assert resumed.status_code == 200, resumed.text
+            assert resumed.json()["workflow"]["status"] == "running"
+            assert resumed.json()["stage_run"]["state"] == "discussing"
