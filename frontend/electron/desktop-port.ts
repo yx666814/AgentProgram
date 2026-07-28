@@ -30,6 +30,7 @@ export interface DesktopPort {
   backend: {
     query<T>(request: BackendRequest): Promise<BackendReply<T>>;
     command<T>(request: BackendRequest): Promise<BackendReply<T>>;
+    stream(request: BackendRequest, listener: (frame: unknown) => void): Promise<BackendReply<null>>;
     subscribe(listener: (event: PersistedEvent) => void): () => void;
     requestReplay(afterEventId: number): Promise<void>;
   };

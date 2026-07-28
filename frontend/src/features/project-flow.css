@@ -582,6 +582,188 @@ select:focus-visible {
   gap: 12px;
 }
 
+.agent-run-panel {
+  margin-bottom: 12px;
+}
+
+.agent-run-composer {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.agent-run-composer > label:first-child {
+  display: grid;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.agent-run-result > dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.agent-run-result > dl div {
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--surface-control);
+}
+
+.agent-run-result dt {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.agent-run-result dd {
+  overflow: hidden;
+  margin: 4px 0 0;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-assignment-editor {
+  display: grid;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--surface-control);
+}
+
+.agent-assignment-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.agent-assignment-fields label {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.agent-assignment-actions {
+  justify-content: flex-start;
+  margin: 0;
+}
+
+.agent-live-state,
+.agent-run-result {
+  margin: 0 12px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 9px;
+  background: var(--surface-control);
+}
+
+.agent-live-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.agent-live-heading span {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.agent-live-state pre,
+.agent-final-output {
+  max-height: 320px;
+  margin: 0;
+  overflow: auto;
+  padding: 12px;
+  color: var(--text-default);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.orchestration-progress {
+  display: grid;
+  gap: 6px;
+  margin: 0 12px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--surface-control);
+}
+
+.orchestration-progress span {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.orchestration-progress .state-error {
+  color: var(--danger-default);
+}
+
+.agent-run-history {
+  max-height: 220px;
+  overflow: auto;
+  border-top: 1px solid var(--border-default);
+}
+
+.agent-run-history article {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.agent-run-history strong,
+.agent-run-history span {
+  display: block;
+}
+
+.agent-run-history span,
+.agent-call-list {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.agent-run-result {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.agent-run-result > dl {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.agent-call-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.agent-call-list span {
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+}
+
+.agent-final-output {
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--surface-panel);
+}
+
 .message-history {
   min-height: 220px;
   max-height: 430px;

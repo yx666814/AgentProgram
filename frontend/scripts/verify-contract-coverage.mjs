@@ -36,8 +36,8 @@ const operations = Object.entries(openapi.paths).flatMap(([path, pathItem]) =>
     .map(([method, operation]) => [operation.operationId, method.toUpperCase(), path]),
 );
 
-if (operations.length !== 68) {
-  throw new Error(`Expected 68 frozen REST operations, found ${operations.length}`);
+if (operations.length !== 69) {
+  throw new Error(`Expected 69 frozen REST operations, found ${operations.length}`);
 }
 for (const [operationId, method, path] of operations) {
   const capability = snapshot.capabilities[operationId];

@@ -26,7 +26,7 @@ export async function loadOperationMap(path: string): Promise<OperationMap> {
       path: candidate.path,
     };
   }
-  if (Object.keys(operations).length !== 68) {
+  if (Object.keys(operations).length !== 69) {
     throw new Error("Capability manifest operation count does not match the frozen contract");
   }
   return Object.freeze(operations);

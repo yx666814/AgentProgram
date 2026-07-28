@@ -8,8 +8,57 @@ import type { OperationMap } from "../../../electron/runtime-contracts";
 import type { SidecarManager } from "../../../electron/sidecar";
 
 const operations: OperationMap = Object.freeze({
+  orchestrate_workflow_stage_api_v1_workflows__workflow_id__orchestration_stream_post: {
+    method: "POST",
+    path: "/api/v1/workflows/{workflow_id}/orchestration/stream",
+  },
+  stream_agent_run_api_v1_agent_runs__run_id__stream_post: {
+    method: "POST",
+    path: "/api/v1/agent-runs/{run_id}/stream",
+  },
   stream_run: { method: "POST", path: "/api/v1/agent-runs/{run_id}/stream" },
   read_output: { method: "GET", path: "/api/v1/agent-runs/{run_id}/output" },
+});
+
+it("forwards NDJSON frames incrementally through the dedicated stream channel", async () => {
+  const encoder = new TextEncoder();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() =>
+      Promise.resolve(
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(encoder.encode('{"type":"chunk","text":"hel'));
+              controller.enqueue(encoder.encode('lo"}\n{"type":"run_completed","status":"succeeded"}\n'));
+              controller.close();
+            },
+          }),
+          {
+            headers: { "Content-Type": "application/x-ndjson; charset=utf-8" },
+            status: 200,
+          },
+        ),
+      ),
+    ),
+  );
+  const frames: unknown[] = [];
+
+  const reply = await client().executeStream(
+    {
+      operationId: "stream_agent_run_api_v1_agent_runs__run_id__stream_post",
+      requestId: "stream-request",
+      parameters: { path: { run_id: "agentrun_1" } },
+      payload: { instruction: "run", correlation_id: "00000000-0000-4000-8000-000000000000" },
+    },
+    (frame) => { frames.push(frame); },
+  );
+
+  expect(reply).toEqual({ requestId: "stream-request", statusCode: 200, payload: null });
+  expect(frames).toEqual([
+    { type: "chunk", text: "hello" },
+    { type: "run_completed", status: "succeeded" },
+  ]);
 });
 
 function client(): BackendClient {

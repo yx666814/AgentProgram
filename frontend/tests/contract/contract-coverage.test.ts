@@ -114,7 +114,7 @@ describe("frozen backend contract snapshots", () => {
         })),
     );
 
-    expect(operations).toHaveLength(68);
+    expect(operations).toHaveLength(69);
     for (const operation of operations) {
       expect(operation.operationId).toBeTypeOf("string");
       expect(capabilitySnapshot.capabilities[operation.operationId ?? ""]).toEqual({

@@ -13,6 +13,7 @@ import { isStage, type Stage, stageContract, stageCopy, stageOrder } from "./sta
 import { StageContextProvider, type StageWorkspaceData } from "./stage-context";
 import { TaskQueue } from "./task-queue";
 import { ToolProgress } from "./tool-progress";
+import { AgentRunPanel } from "./agent-run-panel";
 
 const terminalWorkflowStates = new Set(["completed", "stopped", "abandoned"]);
 
@@ -246,6 +247,9 @@ export function StageWorkspacePage() {
       void reload();
     }} />;
   }
+  if (api === null) {
+    return <ApiErrorState error={new Error("桌面桥未接入，无法运行 Agent")} />;
+  }
 
   const data = resource.data;
   const activeCurrentStage =
@@ -254,6 +258,8 @@ export function StageWorkspacePage() {
     data.room.status === "active";
   const canWrite = data.room.status === "consultation" || (activeCurrentStage && !["locked", "completed", "failed", "cancelled", "abandoned"].includes(data.stageRun.state));
   const canQueue = activeCurrentStage && canWrite;
+  const canRunAgent =
+    activeCurrentStage && ["discussing", "producing", "p2r_reviewing"].includes(data.stageRun.state);
   const nextAction = nextStageAction[data.stageRun.state];
 
   return (
@@ -287,6 +293,8 @@ export function StageWorkspacePage() {
             <div><h3>可申请能力</h3>{data.contract.requestable_capabilities.map((capability) => <code key={capability}>{capability}</code>)}</div>
           </div>
         </section>
+
+        <AgentRunPanel api={api} canRun={canRunAgent} onReload={reload} />
 
         <div className="stage-main-grid">
           <MessageStream canWrite={canWrite} onSend={sendMessage} pendingMessageId={pendingMessageId} />

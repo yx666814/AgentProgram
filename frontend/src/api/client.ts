@@ -42,6 +42,22 @@ export class ApiClient {
     return this.execute(operationId, options, "command");
   }
 
+  async stream(
+    operationId: BackendOperationId,
+    options: ApiRequestOptions,
+    listener: (frame: unknown) => void,
+  ): Promise<ApiResponse<null>> {
+    const request = buildRequest(operationId, {
+      ...options,
+      requestId: options.requestId ?? this.requestIdFactory(),
+    });
+    const reply = await this.transport.stream(request, listener);
+    if (reply.statusCode < 200 || reply.statusCode >= 300) {
+      throw parseApiError(reply.statusCode, reply.payload, options.correlationId);
+    }
+    return { ...reply, operationId };
+  }
+
   private async execute<T>(
     operationId: BackendOperationId,
     options: ApiRequestOptions,
