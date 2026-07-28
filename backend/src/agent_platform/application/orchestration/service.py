@@ -22,6 +22,7 @@ from agent_platform.domain.contracts import (
     Stage,
     StageRunState,
     get_stage_contract,
+    require_project_relative_path,
 )
 from agent_platform.domain.governance import GateResolution, ToolCallStatus
 from agent_platform.domain.model_runtime import AgentRunStatus
@@ -577,6 +578,13 @@ def _validate_action_path(
     path_value = action.arguments.get("path")
     if not isinstance(path_value, str):
         raise _invalid("orchestration.plan_path_invalid", "Filesystem action requires a path")
+    try:
+        require_project_relative_path(path_value)
+    except ValueError:
+        raise _invalid(
+            "orchestration.plan_path_invalid",
+            "Filesystem action requires a canonical project-relative path",
+        ) from None
     if path_value in seen_paths:
         raise _invalid(
             "orchestration.plan_duplicate_path",

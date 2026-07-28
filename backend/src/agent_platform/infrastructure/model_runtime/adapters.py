@@ -228,6 +228,11 @@ class DeterministicFakeModelAdapter:
         del base_url, api_key
         if cancellation.is_set():
             raise asyncio.CancelledError
+        if "AGENTPROGRAM_FAKE_SCENARIO=slow" in _latest_message_content(invocation):
+            for _ in range(200):
+                if cancellation.is_set():
+                    raise asyncio.CancelledError
+                await asyncio.sleep(0.025)
         content = _deterministic_fake_content(invocation)
         yield ModelChunk(text=content)
         input_characters = sum(len(message.content) for message in invocation.messages)
@@ -239,8 +244,14 @@ class DeterministicFakeModelAdapter:
 
 def _deterministic_fake_content(invocation: ModelInvocation) -> str:
     prompt = invocation.model_dump_json()
+    current_message = _latest_message_content(invocation)
     if "AGENTPROGRAM_STAGE_EXECUTION_PLAN_V1" not in prompt:
         return f"[Fake Model] {invocation.model}: deterministic local response."
+    if (
+        "AGENTPROGRAM_FAKE_SCENARIO=invalid_plan" in current_message
+        and "independent_review" not in prompt
+    ):
+        return "This deliberately invalid fake response is not an execution plan."
     if "independent_review" in prompt:
         return "The execution plan is deterministic, scoped, and suitable for the fake-model run."
     stage = next(
@@ -268,14 +279,38 @@ def _deterministic_fake_content(invocation: ModelInvocation) -> str:
             "schema_version": 1,
             "summary": f"Deterministic {label} delivery",
             "artifact_content": artifact_content,
-            "actions": _deterministic_fake_actions(stage, prompt),
+            "actions": _deterministic_fake_actions(stage, prompt, current_message),
         },
         ensure_ascii=False,
         separators=(",", ":"),
     )
 
 
-def _deterministic_fake_actions(stage: str, prompt: str) -> list[dict[str, Any]]:
+def _deterministic_fake_actions(
+    stage: str,
+    prompt: str,
+    current_message: str,
+) -> list[dict[str, Any]]:
+    if stage == "builder" and "AGENTPROGRAM_FAKE_SCENARIO=illegal_path" in current_message:
+        return [
+            {
+                "tool_name": "filesystem.write_source",
+                "arguments": {
+                    "path": "../outside.js",
+                    "content": "module.exports = false;\n",
+                    "expected_hash": None,
+                },
+                "timeout_seconds": 30,
+            }
+        ]
+    if stage == "builder" and "AGENTPROGRAM_FAKE_SCENARIO=tool_failure" in current_message:
+        return [
+            {
+                "tool_name": "shell.test",
+                "arguments": {"command_index": 0},
+                "timeout_seconds": 30,
+            }
+        ]
     files: tuple[tuple[str, str, str], ...]
     if stage == "builder":
         files = (
@@ -338,6 +373,10 @@ def _prompt_file_hash(prompt: str, path: str) -> str | None:
     if len(digest) == 64 and all(character in "0123456789abcdef" for character in digest):
         return digest
     return None
+
+
+def _latest_message_content(invocation: ModelInvocation) -> str:
+    return invocation.messages[-1].content if invocation.messages else ""
 
 
 async def _cancel_aware_lines(

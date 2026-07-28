@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import subprocess
@@ -51,6 +52,15 @@ async def test_high_level_orchestration_completes_all_five_stages(tmp_path: Path
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     workspace.joinpath("README.md").write_text("# Orchestration fixture\n", encoding="utf-8")
+    workspace.joinpath("pyproject.toml").write_text(
+        "[project]\nname = 'orchestration-fixture'\nversion = '0.0.0'\n",
+        encoding="utf-8",
+    )
+    workspace.joinpath("tests").mkdir()
+    workspace.joinpath("tests", "test_expected_failure.py").write_text(
+        "def test_expected_failure():\n    assert False\n",
+        encoding="utf-8",
+    )
     _migrate(data_root)
     secrets = {
         "credential.primary": "fake-primary-secret",
@@ -140,6 +150,82 @@ async def test_high_level_orchestration_completes_all_five_stages(tmp_path: Path
             assert started.status_code == 200, started.text
 
             for stage in STAGE_ORDER:
+                if stage.value == "builder":
+                    slow_frames = []
+
+                    async def consume_slow_orchestration(frames) -> None:
+                        try:
+                            async for frame in app.state.orchestration_service.stream_stage(
+                                workflow_id,
+                                request_key="formal-builder-slow-cancel-request-0001",
+                                instruction=(
+                                    "AGENTPROGRAM_FAKE_SCENARIO=slow exercise cancellation"
+                                ),
+                                correlation_id="orchestration_builder_slow_cancel",
+                            ):
+                                frames.append(frame)
+                        except asyncio.CancelledError:
+                            pass
+
+                    slow_consumer = asyncio.create_task(consume_slow_orchestration(slow_frames))
+                    builder_room = next(
+                        room for room in workflow_snapshot["rooms"] if room["stage"] == "builder"
+                    )
+                    slow_run = None
+                    for _ in range(200):
+                        runs_response = await client.get(
+                            f"/api/v1/rooms/{builder_room['id']}/agent-runs",
+                            headers=AUTHORIZATION,
+                        )
+                        slow_run = next(
+                            (
+                                run
+                                for run in runs_response.json()["runs"]
+                                if run["request_key"] == "formal-builder-slow-cancel-request-0001"
+                                and run["status"] == "running"
+                            ),
+                            None,
+                        )
+                        if slow_run is not None:
+                            break
+                        await asyncio.sleep(0.01)
+                    assert slow_run is not None
+                    cancelled = await client.post(
+                        f"/api/v1/agent-runs/{slow_run['id']}/cancel",
+                        headers=AUTHORIZATION,
+                    )
+                    assert cancelled.status_code == 200, cancelled.text
+                    assert cancelled.json()["cancellation_requested"] is True
+                    await asyncio.wait_for(slow_consumer, timeout=10)
+                    cancelled_snapshot = await client.get(
+                        f"/api/v1/agent-runs/{slow_run['id']}",
+                        headers=AUTHORIZATION,
+                    )
+                    assert cancelled_snapshot.json()["run"]["status"] == "cancelled"
+                    assert any(frame.type.value == "agent_run_created" for frame in slow_frames)
+
+                    fault_scenarios = (
+                        ("invalid_plan", "orchestration.plan_invalid"),
+                        ("illegal_path", "orchestration.plan_path_invalid"),
+                        ("tool_failure", "tool.command_failed"),
+                    )
+                    for scenario, error_code in fault_scenarios:
+                        failed = await client.post(
+                            f"/api/v1/workflows/{workflow_id}/orchestration/stream",
+                            headers=AUTHORIZATION,
+                            json={
+                                "request_key": f"formal-builder-{scenario}-request-0001",
+                                "instruction": (
+                                    f"AGENTPROGRAM_FAKE_SCENARIO={scenario} "
+                                    "exercise the failure boundary"
+                                ),
+                                "correlation_id": f"orchestration_builder_{scenario}",
+                            },
+                        )
+                        assert failed.status_code == 200, failed.text
+                        failed_frames = [json.loads(line) for line in failed.text.splitlines()]
+                        assert failed_frames[-1]["type"] == "error", failed_frames
+                        assert failed_frames[-1]["error_code"] == error_code
                 streamed = await client.post(
                     f"/api/v1/workflows/{workflow_id}/orchestration/stream",
                     headers=AUTHORIZATION,
@@ -191,10 +277,13 @@ async def test_high_level_orchestration_completes_all_five_stages(tmp_path: Path
 
     assert final_snapshot.json()["workflow"]["status"] == "completed"
     assert all(run["state"] == "completed" for run in final_snapshot.json()["stage_runs"])
-    assert len(tasks.json()["tasks"]) == 5
-    assert all(task["status"] == "succeeded" for task in tasks.json()["tasks"])
-    assert len(tools.json()["calls"]) == 10
-    assert all(call["status"] == "succeeded" for call in tools.json()["calls"])
+    assert len(tasks.json()["tasks"]) == 9
+    assert sum(task["status"] == "succeeded" for task in tasks.json()["tasks"]) == 5
+    assert sum(task["status"] == "failed" for task in tasks.json()["tasks"]) == 3
+    assert sum(task["status"] == "cancelled" for task in tasks.json()["tasks"]) == 1
+    assert len(tools.json()["calls"]) == 11
+    assert sum(call["status"] == "succeeded" for call in tools.json()["calls"]) == 10
+    assert sum(call["status"] == "failed" for call in tools.json()["calls"]) == 1
     assert len(artifacts.json()["versions"]) == 5
     assert all(version["status"] == "locked" for version in artifacts.json()["versions"])
     assert len(handoffs.json()["handoffs"]) == 5
