@@ -247,24 +247,97 @@ def _deterministic_fake_content(invocation: ModelInvocation) -> str:
         (
             candidate
             for candidate in ("planner", "designer", "builder", "reviewer", "deployer")
-            if f'\\"stage\\":\\"{candidate}\\"' in prompt or f'"stage":"{candidate}"' in prompt
+            if f"Current stage: {candidate}." in prompt
+            or f'\\"stage\\":\\"{candidate}\\"' in prompt
+            or f'"stage":"{candidate}"' in prompt
         ),
         "planner",
     )
     label = stage.title()
+    artifact_content = (
+        "# Release\n\n"
+        "Install: run the generated Windows installer.\n"
+        "Run: launch the installed application.\n"
+        "Rollback: uninstall the candidate and preserve local project data.\n"
+        "Known issue: the release candidate is not Authenticode signed."
+        if stage == "deployer"
+        else (f"# {label} Deliverable\n\nGenerated and reconciled by the deterministic fake model.")
+    )
     return json.dumps(
         {
             "schema_version": 1,
             "summary": f"Deterministic {label} delivery",
-            "artifact_content": (
-                f"# {label} Deliverable\n\n"
-                "Generated and reconciled by the deterministic fake model."
-            ),
-            "actions": [],
+            "artifact_content": artifact_content,
+            "actions": _deterministic_fake_actions(stage, prompt),
         },
         ensure_ascii=False,
         separators=(",", ":"),
     )
+
+
+def _deterministic_fake_actions(stage: str, prompt: str) -> list[dict[str, Any]]:
+    files: tuple[tuple[str, str, str], ...]
+    if stage == "builder":
+        files = (
+            (
+                "filesystem.write_source",
+                "src/index.js",
+                "function add(left, right) { return left + right; }\nmodule.exports = { add };\n",
+            ),
+            (
+                "filesystem.write_test",
+                "tests/index.test.js",
+                "const test = require('node:test');\n"
+                "const assert = require('node:assert/strict');\n"
+                "const { add } = require('../src/index.js');\n"
+                "test('add', () => assert.equal(add(2, 3), 5));\n",
+            ),
+            (
+                "filesystem.write_build_config",
+                "package.json",
+                '{"name":"xingxie-generated-project","private":true,'
+                '"scripts":{"build":"node -e \\"require(\'./src/index.js\')\\"",'
+                '"test":"node --test"}}\n',
+            ),
+        )
+    elif stage == "deployer":
+        files = (
+            (
+                "filesystem.write_deployment_config",
+                "deploy/config/release.json",
+                '{"application":"xingxie-generated-project","version":1}\n',
+            ),
+            (
+                "filesystem.write_deployment_script",
+                "deploy/scripts/run.cmd",
+                "@echo off\r\nnode src\\index.js\r\n",
+            ),
+        )
+    else:
+        return []
+    return [
+        {
+            "tool_name": tool_name,
+            "arguments": {
+                "path": path,
+                "content": content,
+                "expected_hash": _prompt_file_hash(prompt, path),
+            },
+            "timeout_seconds": 30,
+        }
+        for tool_name, path, content in files
+    ]
+
+
+def _prompt_file_hash(prompt: str, path: str) -> str | None:
+    marker = f"--- {path} sha256="
+    start = prompt.find(marker)
+    if start == -1:
+        return None
+    digest = prompt[start + len(marker) : start + len(marker) + 64]
+    if len(digest) == 64 and all(character in "0123456789abcdef" for character in digest):
+        return digest
+    return None
 
 
 async def _cancel_aware_lines(

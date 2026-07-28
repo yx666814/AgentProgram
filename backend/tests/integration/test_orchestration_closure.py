@@ -193,8 +193,13 @@ async def test_high_level_orchestration_completes_all_five_stages(tmp_path: Path
     assert all(run["state"] == "completed" for run in final_snapshot.json()["stage_runs"])
     assert len(tasks.json()["tasks"]) == 5
     assert all(task["status"] == "succeeded" for task in tasks.json()["tasks"])
-    assert len(tools.json()["calls"]) == 5
+    assert len(tools.json()["calls"]) == 10
     assert all(call["status"] == "succeeded" for call in tools.json()["calls"])
     assert len(artifacts.json()["versions"]) == 5
     assert all(version["status"] == "locked" for version in artifacts.json()["versions"])
     assert len(handoffs.json()["handoffs"]) == 5
+    assert workspace.joinpath("src", "index.js").is_file()
+    assert workspace.joinpath("tests", "index.test.js").is_file()
+    assert workspace.joinpath("package.json").is_file()
+    assert workspace.joinpath("deploy", "config", "release.json").is_file()
+    assert workspace.joinpath("deploy", "scripts", "run.cmd").is_file()
