@@ -1,15 +1,16 @@
 # AgentProgram V1 自动编排层与发布阻塞说明
 
 > 文档版本：v1
-> 状态：实施基线
+> 状态：本地技术门禁已解除；当前 PR CI、真实模型、物理桌面和独立审查待完成
 > 适用版本：`1.0.0-rc.1` 及后续 RC
 > 依据：`docs/PROJECT-PLAN.md`、Stage 0-5 冻结领域规则与桌面端安装版验收结果
+> 实现提交：`1c20a17`、`cc0df5c`、`1070bee`、`2efbeb8`、`3f58d6a`、`2e079b3`
 
 ## 1. 结论
 
-`1.0.0-rc.1` 在自动编排闭环完成前不得作为完整桌面 V1 发布。现有后端已经分别实现工作流、AgentRun、ToolCall、ArtifactVersion、Quality Gate、Approval、Checkpoint 与 Handoff，但安装版产品测试仍由测试驱动逐条调用底层命令。普通用户只操作 Renderer 时无法完成同一条五阶段路径。
+本文建立时发现的自动编排发布阻塞已经解除。后端现已通过一个高层 Orchestration Application Service 协调工作流、AgentRun、ToolCall、ArtifactVersion、Quality Gate、Approval/Policy、Checkpoint 与 Handoff；正式 Renderer 从 Stage 页面调用高层流式命令，不再由前端或测试替用户逐条拼接底层业务命令。
 
-本阻塞项不重写 Stage 0-5。新增的 Orchestration Application Service 只负责按既有领域规则协调现有服务，Backend Main Process 仍是状态、权限、文件与审计的唯一权威。
+这次实现没有重写 Stage 0-5。Orchestration Application Service 只按既有领域规则协调现有服务，Backend Main Process 仍是状态、权限、文件与审计的唯一权威。`1.0.0-rc.1` 仍不是正式 V1：真实 OpenAI Compatible/Anthropic、物理 Windows 桌面、当前 PR CI 和独立审查属于后续发布验收，不应与“自动编排缺失”混为同一个阻塞项。
 
 ## 2. 用户级闭环
 
@@ -121,7 +122,7 @@ Accept: application/x-ndjson
 - 如果崩溃发生在 ArtifactVersion 创建之后，编排服务从权威快照继续后续合法转换，不重复创建相同内容版本。
 - `waiting_approval`、`warning_blocked`、`external_conflict` 不被后台静默越过，必须走现有用户审批、返工或冲突恢复路径。
 
-## 7. 发布验收
+## 7. 解除阻塞证据
 
 解除阻塞必须同时满足：
 
@@ -132,4 +133,28 @@ Accept: application/x-ndjson
 5. OpenAPI、前端类型、Preload 白名单、契约覆盖、安全测试与发布文档同步更新。
 6. Windows 安装包重新构建，记录新的 SHA-256 与未签名状态。
 
-完成上述证据前，产品只能标记为 API 驱动技术预览，不能标记为完整桌面 V1。
+当前证据：
+
+| 要求 | 权威证据 | 结论 |
+| --- | --- | --- |
+| 用户级高层命令 | `POST /api/v1/workflows/{workflow_id}/orchestration/stream`；Renderer 的 Stage 正式运行只调用该冻结 operation | 通过 |
+| 五阶段用户可见闭环 | 安装版 product E2E 实际点击正式 UI，完成 Planner 到 Deployer；`userVisibleOrchestration = true` | 通过 |
+| Manual / Autonomous | 项目主页分段控件调用冻结 `set_workflow_mode` operation；测试实际点击切换，非测试直调 | 通过 |
+| 一主双校与治理链 | 12 个正式 AgentRun、12 次 Gate、10 个锁定 ArtifactVersion、10 次 Handoff、8 次人工审批、2 次自动交接 | 通过 |
+| Warning 恢复 | Autonomous Builder 进入 `warning_blocked`，用户点击“返回讨论”后恢复并以 Manual 返工 | 通过 |
+| 失败与安全边界 | 后端编排集成测试覆盖取消、非法计划、非法路径、工具失败与重启恢复；既有 Stage 5 门禁覆盖 Capability、外部冲突和进程恢复 | 通过 |
+| 契约与桌面边界 | 69 REST / 41 events / 5 StageContracts / 23 tools；Preload、生成类型与生产包扫描同步通过 | 通过 |
+| Windows 候选产物 | 新安装器已完成 product E2E；SHA-256 为 `26D0217BBCF8F8E040C9890A85B339E249BFCF8A6387DA74935C9A7F993D059B`；Authenticode 为 `NotSigned` | 通过（未签名风险已接受） |
+
+本地技术门禁据此解除。详细测试数字、契约哈希、安装包身份和剩余发布项见 `docs/frontend/FRONTEND-STAGE9-ACCEPTANCE-v1.md`、`docs/release/V1-RC1-RELEASE-CHECKLIST.md` 与 `docs/release/V1-RC1-MANUAL-ACCEPTANCE.md`。
+
+## 8. 剩余发布边界
+
+以下事项尚未完成，但不再表示自动编排层缺失：
+
+- 当前分支 PR 的 `backend`、`frontend`、`windows-product` 三个 job 全绿；
+- OpenAI Compatible 与 Anthropic 真实模型的五阶段、取消、错误恢复和密钥脱敏人工验收；
+- 物理 Windows 桌面的 DPI、多显示器、键盘、系统对话框、卸载与重装人工验收；
+- 独立审查和零已知 P0/P1 复核。
+
+完成这些证据前，只能称为 `1.0.0-rc.1` 本地候选，不能宣称正式 V1 已发布，也不得在未获授权时创建 Tag、GitHub Release 或公开上传安装器。
