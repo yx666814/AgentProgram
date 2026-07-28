@@ -58,7 +58,7 @@ userVisibleOrchestration = true
 - [x] RC1 NSIS 安装器重新构建通过。
 - [x] 当前安装器的用户可见编排 product E2E：1 passed。
 - [x] 既有阶段 9 基线的普通 TEMP、Windows 8.3 短路径、卸载重装与恢复门禁保持通过。
-- [ ] 当前分支 PR 的 backend/frontend/windows-product CI 全绿。
+- [ ] 当前分支 PR 的 backend/frontend/windows-product CI 全绿；Job Summary 必须保留安装器 Hash 和产品报告关键计数，测试证据 artifact 为短期尽力上传。
 
 历史 CI 基线：GitHub Actions Run [`29492919058`](https://github.com/yx666814/AgentProgram/actions/runs/29492919058) 曾验证合并前阶段 9 安装版链路。该 Run 不包含本轮自动编排实现，不能作为当前候选安装器的分发身份。
 

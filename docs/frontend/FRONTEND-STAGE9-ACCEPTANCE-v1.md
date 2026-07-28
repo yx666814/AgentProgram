@@ -59,7 +59,7 @@
 npm run test:product
 ```
 
-本地结果：`1 passed`。证据写入忽略目录 `frontend/test-results/product-e2e/`，不提交用户数据、SQLite、日志或截图二进制；PR 的 `windows-product-evidence` artifact 上传安装器、14 张 PNG 和 `stage9-product-report.json`。
+本地结果：`1 passed`。证据写入忽略目录 `frontend/test-results/product-e2e/`，不提交用户数据、SQLite、日志或截图二进制。Windows CI 将提交、安装器字节数/SHA-256 和产品报告关键计数写入 Job Summary；`windows-product-evidence` artifact 只尽力上传测试证据目录并保留 7 天。Artifact 配额或传输失败不得掩盖 Build/Product E2E 的真实结论，也不得被描述成已上传的安装器。
 
 当前最终报告的稳定断言字段：
 

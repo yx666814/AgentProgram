@@ -76,11 +76,48 @@ jobs:
       - name: Installed product E2E
         working-directory: frontend
         run: npm run test:product
-      - uses: actions/upload-artifact@v4
+      - name: Record product evidence summary
         if: always()
+        working-directory: frontend
+        shell: pwsh
+        run: |
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "## Windows product evidence"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- Commit: $env:GITHUB_SHA"
+
+          $installerPath = "release/XingXie-1.0.0-rc.1-Setup.exe"
+          if (Test-Path -LiteralPath $installerPath) {
+            $installer = Get-Item -LiteralPath $installerPath
+            $installerHash = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- Installer bytes: $($installer.Length)"
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- Installer SHA-256: $installerHash"
+          } else {
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- Installer: not produced"
+          }
+
+          $reportPath = Get-ChildItem -Path "test-results/product-e2e" -Filter "stage9-product-report.json" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($null -ne $reportPath) {
+            $report = Get-Content -LiteralPath $reportPath.FullName -Raw | ConvertFrom-Json
+            $summary = [ordered]@{
+              formalAgentRuns = $report.formalAgentRuns
+              qualityGateEvaluations = $report.qualityGateEvaluations
+              lockedArtifactVersions = $report.lockedArtifactVersions
+              handoffs = $report.handoffs
+              manualApprovals = $report.manualApprovals
+              autonomousHandoffs = $report.autonomousHandoffs
+              userVisibleOrchestration = $report.userVisibleOrchestration
+            }
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '```json'
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ($summary | ConvertTo-Json -Compress)
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '```'
+          } else {
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- Product report: not produced"
+          }
+      - name: Upload product test evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        continue-on-error: true
         with:
           name: windows-product-evidence
-          path: |
-            frontend/release/XingXie-1.0.0-rc.1-Setup.exe
-            frontend/test-results/product-e2e
+          path: frontend/test-results/product-e2e
           if-no-files-found: warn
+          retention-days: 7
