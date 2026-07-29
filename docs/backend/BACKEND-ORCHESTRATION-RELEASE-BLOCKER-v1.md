@@ -148,7 +148,7 @@ Accept: application/x-ndjson
 
 本地技术门禁据此解除。详细测试数字、契约哈希、安装包身份和剩余发布项见 `docs/frontend/FRONTEND-STAGE9-ACCEPTANCE-v1.md`、`docs/release/V1-RC1-RELEASE-CHECKLIST.md` 与 `docs/release/V1-RC1-MANUAL-ACCEPTANCE.md`。
 
-远端证据：[GitHub Actions Run `30400155883`](https://github.com/yx666814/AgentProgram/actions/runs/30400155883) 在提交 `600c8a7` 上完成，`backend`、`frontend`、`windows-product` 均为 `success`；其中 Windows job 的安装器构建、安装版产品 E2E（`1 passed`）和产品证据摘要均成功。
+远端证据：[GitHub Actions Run `30445226287`](https://github.com/yx666814/AgentProgram/actions/runs/30445226287) 在提交 `db0cc2a` 上完成，`backend`、`frontend`、`windows-product` 均为 `success`；其中 Windows job 的安装器构建、安装版产品 E2E（`1 passed`）和产品证据摘要均成功。
 
 ## 8. 剩余发布边界
 

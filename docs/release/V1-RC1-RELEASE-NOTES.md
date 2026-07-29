@@ -110,7 +110,7 @@ Get-FileHash .\XingXie-1.0.0-rc.1-Setup.exe -Algorithm SHA256
 - Playwright：58 passed；
 - 最终安装器 product E2E：1 passed。
 
-GitHub Actions Run [`30400155883`](https://github.com/yx666814/AgentProgram/actions/runs/30400155883) 在提交 `600c8a7` 上完成，`backend`、`frontend`、`windows-product` 均为 `success`；Windows job 的安装器构建、安装版 product E2E（`1 passed`）和证据摘要成功。仓库历史 artifact 已占满配额，因此本 Run 没有生成可下载 artifact；本地候选安装器身份仍以上文和同批校验文件为准。
+GitHub Actions Run [`30445226287`](https://github.com/yx666814/AgentProgram/actions/runs/30445226287) 在提交 `db0cc2a` 上完成，`backend`、`frontend`、`windows-product` 均为 `success`；Windows job 的安装器构建、安装版 product E2E（`1 passed`）和证据摘要成功。仓库历史 artifact 已占满配额，因此本 Run 没有生成可下载 artifact；本地候选安装器身份仍以上文和同批校验文件为准。
 
 历史 Run `29492919058` 只证明合并前阶段 9 基线，不包含本轮自动编排实现。
 

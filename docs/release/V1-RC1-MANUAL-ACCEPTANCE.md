@@ -182,4 +182,4 @@ Status: NotSigned
 4. 确认应用数据仍可读取，已完成工作流仍为 `completed`，Direct Workspace 文件 Hash 未改变。
 5. 将结果写回 `V1-RC1-RELEASE-CHECKLIST.md`；缺陷按 P0/P1/P2 分类，不以口头“基本可用”替代证据。
 
-只有真实模型、物理桌面、独立审查和实际分发文件哈希复核全部完成，才申请创建 Tag、GitHub Release 或公开上传安装器。当前 PR CI 已由 Run `30400155883` 验证通过；当前手册不授予这些发布操作权限。
+只有真实模型、物理桌面、独立审查和实际分发文件哈希复核全部完成，才申请创建 Tag、GitHub Release 或公开上传安装器。当前 PR CI 已由 Run `30445226287` 验证通过；当前手册不授予这些发布操作权限。

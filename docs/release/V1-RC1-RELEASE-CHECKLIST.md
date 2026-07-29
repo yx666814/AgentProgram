@@ -58,11 +58,11 @@ userVisibleOrchestration = true
 - [x] RC1 NSIS 安装器重新构建通过。
 - [x] 当前安装器的用户可见编排 product E2E：1 passed。
 - [x] 既有阶段 9 基线的普通 TEMP、Windows 8.3 短路径、卸载重装与恢复门禁保持通过。
-- [x] 当前分支 PR 的 backend/frontend/windows-product CI 全绿；Run `30400155883` 的 Job Summary 保留安装器 Hash 和产品报告关键计数，测试证据 artifact 因历史存储配额未实际生成。
+- [x] 当前分支 PR 的 backend/frontend/windows-product CI 全绿；Run `30445226287` 的 Job Summary 保留安装器 Hash 和产品报告关键计数，测试证据 artifact 因历史存储配额未实际生成。
 
 历史 CI 基线：GitHub Actions Run [`29492919058`](https://github.com/yx666814/AgentProgram/actions/runs/29492919058) 曾验证合并前阶段 9 安装版链路。该 Run 不包含本轮自动编排实现，不能作为当前候选安装器的分发身份。
 
-当前 PR 证据：GitHub Actions Run [`30400155883`](https://github.com/yx666814/AgentProgram/actions/runs/30400155883) 在提交 `600c8a7` 上完成，`backend`、`frontend`、`windows-product` 均为 `success`；安装器构建和安装版 product E2E（`1 passed`）通过。仓库历史 artifact 配额已满，本 Run 没有可下载 artifact，不能把 Job Summary 中的 CI 安装器身份当成公开下载项。
+当前 PR 证据：GitHub Actions Run [`30445226287`](https://github.com/yx666814/AgentProgram/actions/runs/30445226287) 在提交 `db0cc2a` 上完成，`backend`、`frontend`、`windows-product` 均为 `success`；安装器构建和安装版 product E2E（`1 passed`）通过。仓库历史 artifact 配额已满，本 Run 没有可下载 artifact，不能把 Job Summary 中的 CI 安装器身份当成公开下载项。
 
 ## 4. 当前本地 RC1 产物证据
 
@@ -116,7 +116,7 @@ userVisibleOrchestration = true
 
 ### 审查与分发
 
-- [x] 当前 PR 的三个 CI job 全绿（Run `30400155883`）。
+- [x] 当前 PR 的三个 CI job 全绿（Run `30445226287`）。
 - [ ] PR 由独立审查者确认。
 - [x] 当前零已知 P0/P1。
 - [ ] Release Notes、已知问题和回滚步骤与实际上传文件一致。
