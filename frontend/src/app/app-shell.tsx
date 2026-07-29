@@ -51,7 +51,7 @@ export function AppShell() {
       <div className="app-body">
         <aside className="sidebar" aria-label="主导航">
           <div className="brand-block">
-            <img alt="" className="brand-icon" src="/xingxie-icon.svg" />
+            <img alt="" className="brand-icon" src="./xingxie-icon.png" />
             <div>
               <strong>星协</strong>
               <span>AgentProgram V1</span>

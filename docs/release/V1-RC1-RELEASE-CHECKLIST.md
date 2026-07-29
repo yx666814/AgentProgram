@@ -70,10 +70,10 @@ userVisibleOrchestration = true
 
 | 产物 | 字节 | SHA-256 | 签名 |
 | --- | ---: | --- | --- |
-| `frontend/release/XingXie-1.0.0-rc.1-Setup.exe` | 122253379 | `26D0217BBCF8F8E040C9890A85B339E249BFCF8A6387DA74935C9A7F993D059B` | `NotSigned` |
-| `frontend/release/win-unpacked/星协.exe` | 225485824 | `1DBAF7DF25F71F7682C4B1B18E053149322743306840450B8E9E2549AFADB3F8` | `NotSigned` |
+| `frontend/release/XingXie-1.0.0-rc.1-Setup.exe` | 122294347 | `FF227F57B4D22F0D6388D339519D8A5922E5C04A206DFD7777EE70AFB7BB7585` | `NotSigned` |
+| `frontend/release/win-unpacked/星协.exe` | 225485824 | `141325078867F5AA3D31CAA7327B99FDF940F4B0CA8569ECED221135ECDC02AF` | `NotSigned` |
 | `frontend/release/win-unpacked/resources/backend/agent-platform-desktop-sidecar.exe` | 13047226 | `4523EECEE70A5A3959C1831218B131F759BF94B49C47875CC172554027C163B2` | `NotSigned` |
-| `frontend/release/win-unpacked/resources/app.asar` | 13925302 | `8BEC7C7F12F7D6F03C235AAF31E0F08EF9B60EF47B28FBF5EFAC6D202913DE4F` | 不适用 |
+| `frontend/release/win-unpacked/resources/app.asar` | 13975139 | `FC1AB75FE40720EE8B1ADD2E97D2A1FF089C7AA908ED28F567F0D3BBEC276EF0` | 不适用 |
 
 本地安装器校验文件：`docs/release/V1-RC1-LOCAL-SHA256SUMS.txt`。本地安装器尚未获得公开上传授权，不是 GitHub Release 下载项。
 

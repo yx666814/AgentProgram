@@ -109,7 +109,7 @@ export function StartupPage() {
     <main className="startup-screen">
       <section className="startup-card" aria-labelledby="startup-title">
         <header className="startup-heading">
-          <img alt="" src="/xingxie-icon.svg" />
+          <img alt="" src="./xingxie-icon.png" />
           <div>
             <h1 id="startup-title">启动星协</h1>
             <p>本地后端与恢复检查</p>

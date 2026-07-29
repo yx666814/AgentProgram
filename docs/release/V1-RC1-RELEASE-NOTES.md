@@ -26,6 +26,7 @@ Planner -> Designer -> Builder -> Reviewer -> Deployer
 - Agent 运行、NDJSON 流式状态、取消、失败重跑和应用重启恢复。
 - Tool Catalog、StageContract、PathGuard、CapabilityRequest、当前文件 Hash 与 Manifest 命令索引的逐层校验。
 - Electron 桌面壳、Sidecar 动态端口、本地 SecretStore 桥接、诊断导出和 Windows NSIS 安装器。
+- 安装版启动页、侧栏和 Windows 快捷方式统一使用透明圆角品牌图标。
 
 最终安装版产品 E2E 已从用户可见 UI 验证：
 
@@ -47,7 +48,7 @@ Deployer Manual + UI 审批
 
 | 文件 | 字节 | SHA-256 | Authenticode |
 | --- | ---: | --- | --- |
-| `XingXie-1.0.0-rc.1-Setup.exe` | 122253379 | `26D0217BBCF8F8E040C9890A85B339E249BFCF8A6387DA74935C9A7F993D059B` | `NotSigned` |
+| `XingXie-1.0.0-rc.1-Setup.exe` | 122294347 | `FF227F57B4D22F0D6388D339519D8A5922E5C04A206DFD7777EE70AFB7BB7585` | `NotSigned` |
 
 PowerShell 校验命令：
 
