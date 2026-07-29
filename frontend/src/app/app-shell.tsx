@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 
 import { useBackend } from "../api/backend-context";
+import { xingxieIconUrl } from "../assets/branding";
 import { Button } from "../components/button";
 import { useTheme } from "../theme/theme-provider";
 
@@ -51,7 +52,7 @@ export function AppShell() {
       <div className="app-body">
         <aside className="sidebar" aria-label="主导航">
           <div className="brand-block">
-            <img alt="" className="brand-icon" src="./xingxie-icon.png" />
+            <img alt="" className="brand-icon" src={xingxieIconUrl} />
             <div>
               <strong>星协</strong>
               <span>AgentProgram V1</span>

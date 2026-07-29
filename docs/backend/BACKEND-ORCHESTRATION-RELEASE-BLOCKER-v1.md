@@ -144,7 +144,7 @@ Accept: application/x-ndjson
 | Warning 恢复 | Autonomous Builder 进入 `warning_blocked`，用户点击“返回讨论”后恢复并以 Manual 返工 | 通过 |
 | 失败与安全边界 | 后端编排集成测试覆盖取消、非法计划、非法路径、工具失败与重启恢复；既有 Stage 5 门禁覆盖 Capability、外部冲突和进程恢复 | 通过 |
 | 契约与桌面边界 | 69 REST / 41 events / 5 StageContracts / 23 tools；Preload、生成类型与生产包扫描同步通过 | 通过 |
-| Windows 候选产物 | 新安装器已完成 product E2E；SHA-256 为 `FF227F57B4D22F0D6388D339519D8A5922E5C04A206DFD7777EE70AFB7BB7585`；Authenticode 为 `NotSigned` | 通过（未签名风险已接受） |
+| Windows 候选产物 | 新安装器已完成 product E2E；SHA-256 为 `4D830304D516EA87F01332AA7C45B4D7E849652BD09DA0D5A1C81ACD58684192`；Authenticode 为 `NotSigned` | 通过（未签名风险已接受） |
 
 本地技术门禁据此解除。详细测试数字、契约哈希、安装包身份和剩余发布项见 `docs/frontend/FRONTEND-STAGE9-ACCEPTANCE-v1.md`、`docs/release/V1-RC1-RELEASE-CHECKLIST.md` 与 `docs/release/V1-RC1-MANUAL-ACCEPTANCE.md`。
 

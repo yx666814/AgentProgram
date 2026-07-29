@@ -48,7 +48,7 @@ Deployer Manual + UI 审批
 
 | 文件 | 字节 | SHA-256 | Authenticode |
 | --- | ---: | --- | --- |
-| `XingXie-1.0.0-rc.1-Setup.exe` | 122294347 | `FF227F57B4D22F0D6388D339519D8A5922E5C04A206DFD7777EE70AFB7BB7585` | `NotSigned` |
+| `XingXie-1.0.0-rc.1-Setup.exe` | 122294271 | `4D830304D516EA87F01332AA7C45B4D7E849652BD09DA0D5A1C81ACD58684192` | `NotSigned` |
 
 PowerShell 校验命令：
 
