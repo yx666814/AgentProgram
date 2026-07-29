@@ -24,6 +24,7 @@ export type Workflow = components["schemas"]["Workflow"];
 export type WorkflowList = components["schemas"]["WorkflowListResponse"];
 export type WorkflowSnapshot = components["schemas"]["WorkflowSnapshot"];
 export type WorkflowAction = "pause" | "resume" | "stop" | "abandon";
+export type ExecutionMode = components["schemas"]["ExecutionMode"];
 export type Stage = components["schemas"]["Stage"];
 export type StageRunState = components["schemas"]["StageRunState"];
 export type StageTransitionResult = components["schemas"]["StageTransitionResponse"];
@@ -33,7 +34,15 @@ export type MessageAppendResult = components["schemas"]["MessageAppendResponse"]
 export type Task = components["schemas"]["WorkflowTask"];
 export type TaskList = components["schemas"]["TaskListResponse"];
 export type ToolCallList = components["schemas"]["ToolCallList"];
+export type AgentRun = components["schemas"]["AgentRun"];
 export type AgentRunList = components["schemas"]["AgentRunListResponse"];
+export type AgentRunCreateResult = components["schemas"]["AgentRunCreateResponse"];
+export type AgentRunSnapshot = components["schemas"]["AgentRunSnapshot"];
+export type AgentRunCancelResult = components["schemas"]["AgentRunCancelResponse"];
+export type AgentRunStatus = components["schemas"]["AgentRunStatus"];
+export type ModelCallStatus = components["schemas"]["ModelCallStatus"];
+export type ModelPhase = components["schemas"]["ModelPhase"];
+export type ModelRole = components["schemas"]["ModelRole"];
 export type RoomModelAssignment = components["schemas"]["RoomModelAssignment"];
 export type ModelProfile = components["schemas"]["ModelProfile"];
 export type ModelProfileList = components["schemas"]["ModelProfileListResponse"];
@@ -65,6 +74,183 @@ export type ProjectCheckpoint = components["schemas"]["ProjectCheckpoint"];
 export type RestorePlan = components["schemas"]["RestorePlanResponse"];
 export type RestoreResult = components["schemas"]["CheckpointRestoreResponse"];
 export type ExternalChangeList = components["schemas"]["ExternalChangeListResponse"];
+
+export type AgentStreamFrameType =
+  | "run_started"
+  | "call_started"
+  | "chunk"
+  | "call_completed"
+  | "run_completed"
+  | "error";
+
+export interface AgentStreamFrame {
+  data: Record<string, unknown>;
+  error_code: string | null;
+  phase: ModelPhase | null;
+  role: ModelRole | null;
+  run_id: string;
+  sequence: number;
+  status: AgentRunStatus | ModelCallStatus | null;
+  text: string | null;
+  type: AgentStreamFrameType;
+}
+
+export type OrchestrationFrameType =
+  | "started"
+  | "stage_transitioned"
+  | "task_started"
+  | "agent_run_created"
+  | "agent_frame"
+  | "plan_validated"
+  | "tool_completed"
+  | "task_completed"
+  | "artifact_created"
+  | "gate_evaluated"
+  | "approval_required"
+  | "handoff_created"
+  | "completed"
+  | "error";
+
+export interface OrchestrationFrame {
+  agent_run_id: string | null;
+  data: Record<string, unknown>;
+  error_code: string | null;
+  sequence: number;
+  stage_run_id: string;
+  task_id: string | null;
+  text: string | null;
+  type: OrchestrationFrameType;
+  workflow_id: string;
+}
+
+const agentStreamFrameTypes = new Set<AgentStreamFrameType>([
+  "run_started",
+  "call_started",
+  "chunk",
+  "call_completed",
+  "run_completed",
+  "error",
+]);
+const modelRoles = new Set<ModelRole>(["primary", "reviewer_a", "reviewer_b"]);
+const modelPhases = new Set<ModelPhase>(["p0", "p1", "p2r"]);
+const streamStatuses = new Set<AgentRunStatus | ModelCallStatus>([
+  "pending",
+  "running",
+  "succeeded",
+  "partial_failure",
+  "failed",
+  "cancelled",
+  "streaming",
+]);
+
+function parseAgentStreamFrame(value: unknown): AgentStreamFrame {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("AgentRun stream frame must be an object");
+  }
+  const frame = value as Record<string, unknown>;
+  if (
+    typeof frame.type !== "string" ||
+    !agentStreamFrameTypes.has(frame.type as AgentStreamFrameType) ||
+    typeof frame.run_id !== "string" ||
+    !/^agentrun_[a-z0-9]+$/.test(frame.run_id) ||
+    typeof frame.sequence !== "number" ||
+    !Number.isSafeInteger(frame.sequence) ||
+    frame.sequence < 1 ||
+    typeof frame.data !== "object" ||
+    frame.data === null ||
+    Array.isArray(frame.data)
+  ) {
+    throw new Error("AgentRun stream frame violates the frozen backend contract");
+  }
+  const role = frame.role;
+  const phase = frame.phase;
+  const status = frame.status;
+  const text = frame.text;
+  const errorCode = frame.error_code;
+  if (
+    !(role === null || (typeof role === "string" && modelRoles.has(role as ModelRole))) ||
+    !(phase === null || (typeof phase === "string" && modelPhases.has(phase as ModelPhase))) ||
+    !(status === null || (typeof status === "string" && streamStatuses.has(status as AgentRunStatus | ModelCallStatus))) ||
+    !(text === null || typeof text === "string") ||
+    !(errorCode === null || typeof errorCode === "string")
+  ) {
+    throw new Error("AgentRun stream frame contains an invalid optional field");
+  }
+  return {
+    data: frame.data as Record<string, unknown>,
+    error_code: errorCode,
+    phase: phase as ModelPhase | null,
+    role: role as ModelRole | null,
+    run_id: frame.run_id,
+    sequence: frame.sequence,
+    status: status as AgentRunStatus | ModelCallStatus | null,
+    text,
+    type: frame.type as AgentStreamFrameType,
+  };
+}
+
+const orchestrationFrameTypes = new Set<OrchestrationFrameType>([
+  "started",
+  "stage_transitioned",
+  "task_started",
+  "agent_run_created",
+  "agent_frame",
+  "plan_validated",
+  "tool_completed",
+  "task_completed",
+  "artifact_created",
+  "gate_evaluated",
+  "approval_required",
+  "handoff_created",
+  "completed",
+  "error",
+]);
+
+function parseOrchestrationFrame(value: unknown): OrchestrationFrame {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("Orchestration stream frame must be an object");
+  }
+  const frame = value as Record<string, unknown>;
+  if (
+    typeof frame.type !== "string" ||
+    !orchestrationFrameTypes.has(frame.type as OrchestrationFrameType) ||
+    typeof frame.workflow_id !== "string" ||
+    !/^workflow_[a-z0-9]+$/.test(frame.workflow_id) ||
+    typeof frame.stage_run_id !== "string" ||
+    !/^stagerun_[a-z0-9]+$/.test(frame.stage_run_id) ||
+    typeof frame.sequence !== "number" ||
+    !Number.isSafeInteger(frame.sequence) ||
+    frame.sequence < 1 ||
+    typeof frame.data !== "object" ||
+    frame.data === null ||
+    Array.isArray(frame.data)
+  ) {
+    throw new Error("Orchestration stream frame violates the backend contract");
+  }
+  const agentRunId = frame.agent_run_id;
+  const taskId = frame.task_id;
+  const text = frame.text;
+  const errorCode = frame.error_code;
+  if (
+    !(agentRunId === null || (typeof agentRunId === "string" && /^agentrun_[a-z0-9]+$/.test(agentRunId))) ||
+    !(taskId === null || (typeof taskId === "string" && /^task_[a-z0-9]+$/.test(taskId))) ||
+    !(text === null || typeof text === "string") ||
+    !(errorCode === null || typeof errorCode === "string")
+  ) {
+    throw new Error("Orchestration stream frame contains an invalid optional field");
+  }
+  return {
+    agent_run_id: agentRunId,
+    data: frame.data as Record<string, unknown>,
+    error_code: errorCode,
+    sequence: frame.sequence,
+    stage_run_id: frame.stage_run_id,
+    task_id: taskId,
+    text,
+    type: frame.type as OrchestrationFrameType,
+    workflow_id: frame.workflow_id,
+  };
+}
 
 export interface CommandReceipt<T> {
   correlationId: string;
@@ -252,6 +438,26 @@ export class BackendApi {
     ).payload;
   }
 
+  async setWorkflowMode(
+    workflowId: string,
+    mode: ExecutionMode,
+    expectedVersion: number,
+  ): Promise<Workflow> {
+    return (
+      await this.client.command<Workflow>(
+        "set_workflow_mode_api_v1_workflows__workflow_id__mode_post",
+        {
+          parameters: { path: { workflow_id: workflowId } },
+          payload: {
+            mode,
+            expected_version: expectedVersion,
+            correlation_id: this.correlationIdFactory(),
+          },
+        },
+      )
+    ).payload;
+  }
+
   async listMessages(roomId: string): Promise<MessageList> {
     return (
       await this.client.query<MessageList>("list_messages_api_v1_rooms__room_id__messages_get", {
@@ -337,6 +543,89 @@ export class BackendApi {
       await this.client.query<AgentRunList>("list_agent_runs_api_v1_rooms__room_id__agent_runs_get", {
         parameters: { path: { room_id: roomId } },
       })
+    ).payload;
+  }
+
+  async createAgentRun(roomId: string, formal: boolean): Promise<AgentRunCreateResult> {
+    const correlationId = this.correlationIdFactory();
+    return (
+      await this.client.command<AgentRunCreateResult>(
+        "create_agent_run_api_v1_rooms__room_id__agent_runs_post",
+        {
+          correlationId,
+          parameters: { path: { room_id: roomId } },
+          payload: {
+            request_key: `agent-run:${crypto.randomUUID()}`,
+            formal,
+            correlation_id: correlationId,
+          },
+        },
+      )
+    ).payload;
+  }
+
+  async streamAgentRun(
+    runId: string,
+    instruction: string,
+    listener: (frame: AgentStreamFrame) => void,
+  ): Promise<void> {
+    const correlationId = this.correlationIdFactory();
+    await this.client.stream(
+      "stream_agent_run_api_v1_agent_runs__run_id__stream_post",
+      {
+        correlationId,
+        parameters: { path: { run_id: runId } },
+        payload: { instruction, correlation_id: correlationId },
+      },
+      (frame) => { listener(parseAgentStreamFrame(frame)); },
+    );
+  }
+
+  async streamOrchestration(
+    workflowId: string,
+    instruction: string,
+    requestKey: string,
+    listener: (frame: OrchestrationFrame) => void,
+  ): Promise<void> {
+    const correlationId = this.correlationIdFactory();
+    await this.client.stream(
+      "orchestrate_workflow_stage_api_v1_workflows__workflow_id__orchestration_stream_post",
+      {
+        parameters: { path: { workflow_id: workflowId } },
+        payload: {
+          request_key: requestKey,
+          instruction,
+          correlation_id: correlationId,
+        },
+      },
+      (frame) => { listener(parseOrchestrationFrame(frame)); },
+    );
+  }
+
+  async cancelAgentRun(runId: string): Promise<AgentRunCancelResult> {
+    return (
+      await this.client.command<AgentRunCancelResult>(
+        "cancel_agent_run_api_v1_agent_runs__run_id__cancel_post",
+        { parameters: { path: { run_id: runId } } },
+      )
+    ).payload;
+  }
+
+  async getAgentRun(runId: string): Promise<AgentRunSnapshot> {
+    return (
+      await this.client.query<AgentRunSnapshot>(
+        "get_agent_run_api_v1_agent_runs__run_id__get",
+        { parameters: { path: { run_id: runId } } },
+      )
+    ).payload;
+  }
+
+  async getAgentRunOutput(runId: string): Promise<string> {
+    return (
+      await this.client.query<string>(
+        "get_agent_run_output_api_v1_agent_runs__run_id__output_get",
+        { parameters: { path: { run_id: runId } } },
+      )
     ).payload;
   }
 

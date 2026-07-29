@@ -7,12 +7,17 @@ import type {
 } from "../../electron/desktop-port";
 
 type RequestHandler = (request: BackendRequest) => BackendReply | Promise<BackendReply>;
+type StreamHandler = (
+  request: BackendRequest,
+  emit: (frame: unknown) => void,
+) => BackendReply<null> | Promise<BackendReply<null>>;
 
 export interface FakeDesktopPortOptions {
   command?: RequestHandler;
   confirmResult?: boolean;
   directory?: { cancelled: boolean; path?: string };
   query?: RequestHandler;
+  stream?: StreamHandler;
 }
 
 export interface FakeDesktopPort extends DesktopPort {
@@ -21,6 +26,7 @@ export interface FakeDesktopPort extends DesktopPort {
     confirms: Array<{ title: string; message: string; detail: string; confirmLabel: string }>;
     queries: BackendRequest[];
     replays: number[];
+    streams: BackendRequest[];
     secretDeletes: string[];
     secretStores: Array<{ value: string; label: string }>;
     diagnosticsExports: Array<{ workflowId?: string; afterEventId?: number }>;
@@ -46,6 +52,7 @@ export function createFakeDesktopPort(options: FakeDesktopPortOptions = {}): Fak
     secretDeletes: [],
     secretStores: [],
     diagnosticsExports: [],
+    streams: [],
   };
 
   return {
@@ -60,6 +67,14 @@ export function createFakeDesktopPort(options: FakeDesktopPortOptions = {}): Fak
         calls.commands.push(request);
         const response = await (options.command?.(request) ?? unexpected("command", request.operationId));
         return response as BackendReply<T>;
+      },
+      async stream(
+        request: BackendRequest,
+        listener: (frame: unknown) => void,
+      ): Promise<BackendReply<null>> {
+        calls.streams.push(request);
+        return options.stream?.(request, listener) ??
+          unexpected("stream", request.operationId);
       },
       subscribe(listener: (event: PersistedEvent) => void): () => void {
         listeners.add(listener);

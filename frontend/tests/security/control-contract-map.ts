@@ -44,6 +44,8 @@ export const controlContracts: Record<string, ControlContract[]> = {
   "暂停": [operation("control_workflow_api_v1_workflows__workflow_id___action__post")],
   "停止": [operation("control_workflow_api_v1_workflows__workflow_id___action__post")],
   "放弃": [operation("control_workflow_api_v1_workflows__workflow_id___action__post", "resolve_recovery_api_v1_recovery__recovery_id___action__post")],
+  "Manual": [operation("set_workflow_mode_api_v1_workflows__workflow_id__mode_post")],
+  "Autonomous": [operation("set_workflow_mode_api_v1_workflows__workflow_id__mode_post")],
   "继续恢复": [operation("resolve_recovery_api_v1_recovery__recovery_id___action__post")],
   "更正此消息": [view("prepare immutable correction")],
   "发送": [operation("append_message_api_v1_rooms__room_id__messages_post")],
@@ -91,6 +93,8 @@ export const dynamicControlLabels = [
   "返回讨论",
   "冲突处理后继续讨论",
   "恢复讨论",
+  "Manual",
+  "Autonomous",
   "创建模型配置",
   "保存模型配置",
 ] as const;

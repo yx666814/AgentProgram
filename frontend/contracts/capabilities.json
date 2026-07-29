@@ -1,6 +1,6 @@
 {
-  "backendCommit": "2018e1e995e6072f959e7a5f64e13bf8737e0838",
-  "backendTree": "072c074e7ec25e585f86005eddeb3ccbd85aa7c1",
+  "backendCommit": "3f58d6a19d35fe849764202fec095fd906137372",
+  "backendTree": "19df7dea8f4b76815712544f10b766dc09df30b8",
   "capabilities": {
     "append_message_api_v1_rooms__room_id__messages_post": {
       "method": "POST",
@@ -202,6 +202,10 @@
       "method": "POST",
       "path": "/api/v1/projects/{project_id}/open"
     },
+    "orchestrate_workflow_stage_api_v1_workflows__workflow_id__orchestration_stream_post": {
+      "method": "POST",
+      "path": "/api/v1/workflows/{workflow_id}/orchestration/stream"
+    },
     "plan_restore_api_v1_projects__project_id__checkpoints__checkpoint_id__restore_plan_post": {
       "method": "POST",
       "path": "/api/v1/projects/{project_id}/checkpoints/{checkpoint_id}/restore-plan"
@@ -334,6 +338,16 @@
     "model.output_unavailable",
     "model.output_verification_failed",
     "model_profile.disabled",
+    "orchestration.agent_run_failed",
+    "orchestration.capability_approval_required",
+    "orchestration.capability_forbidden",
+    "orchestration.internal_failure",
+    "orchestration.plan_hash_conflict",
+    "orchestration.request_terminal",
+    "orchestration.resume_key_required",
+    "orchestration.stage_not_gate_ready",
+    "orchestration.stage_not_runnable",
+    "orchestration.workflow_not_running",
     "project.closed",
     "project.manifest_not_found",
     "project.manifest_version_conflict",

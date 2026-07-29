@@ -13,6 +13,7 @@ from agent_platform.interfaces.api.middleware import UnexpectedErrorMiddleware
 from agent_platform.interfaces.api.routes.events import ticket_router, websocket_router
 from agent_platform.interfaces.api.routes.health import router as health_router
 from agent_platform.interfaces.api.routes.model_runtime import router as model_runtime_router
+from agent_platform.interfaces.api.routes.orchestration import router as orchestration_router
 from agent_platform.interfaces.api.routes.projects import router as projects_router
 from agent_platform.interfaces.api.routes.stage5 import router as stage5_router
 from agent_platform.interfaces.api.routes.workflows import router as workflows_router
@@ -71,6 +72,11 @@ def create_app(settings: Settings, *, secret_store: SecretStore | None = None) -
     )
     app.include_router(
         stage5_router,
+        prefix="/api/v1",
+        dependencies=[Depends(require_session)],
+    )
+    app.include_router(
+        orchestration_router,
         prefix="/api/v1",
         dependencies=[Depends(require_session)],
     )

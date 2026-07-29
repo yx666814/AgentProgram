@@ -228,13 +228,155 @@ class DeterministicFakeModelAdapter:
         del base_url, api_key
         if cancellation.is_set():
             raise asyncio.CancelledError
-        content = f"[Fake Model] {invocation.model}: deterministic local response."
+        if "AGENTPROGRAM_FAKE_SCENARIO=slow" in _latest_message_content(invocation):
+            for _ in range(200):
+                if cancellation.is_set():
+                    raise asyncio.CancelledError
+                await asyncio.sleep(0.025)
+        content = _deterministic_fake_content(invocation)
         yield ModelChunk(text=content)
         input_characters = sum(len(message.content) for message in invocation.messages)
         yield ModelChunk(
             input_tokens=max(1, input_characters // 4),
             output_tokens=max(1, len(content) // 4),
         )
+
+
+def _deterministic_fake_content(invocation: ModelInvocation) -> str:
+    prompt = invocation.model_dump_json()
+    current_message = _latest_message_content(invocation)
+    if "AGENTPROGRAM_STAGE_EXECUTION_PLAN_V1" not in prompt:
+        return f"[Fake Model] {invocation.model}: deterministic local response."
+    if (
+        "AGENTPROGRAM_FAKE_SCENARIO=invalid_plan" in current_message
+        and "independent_review" not in prompt
+    ):
+        return "This deliberately invalid fake response is not an execution plan."
+    if "independent_review" in prompt:
+        return "The execution plan is deterministic, scoped, and suitable for the fake-model run."
+    stage = next(
+        (
+            candidate
+            for candidate in ("planner", "designer", "builder", "reviewer", "deployer")
+            if f"Current stage: {candidate}." in prompt
+            or f'\\"stage\\":\\"{candidate}\\"' in prompt
+            or f'"stage":"{candidate}"' in prompt
+        ),
+        "planner",
+    )
+    label = stage.title()
+    artifact_content = (
+        "# Release\n\n"
+        "Install: run the generated Windows installer.\n"
+        "Run: launch the installed application.\n"
+        "Rollback: uninstall the candidate and preserve local project data.\n"
+        "Known issue: the release candidate is not Authenticode signed."
+        if stage == "deployer"
+        else (f"# {label} Deliverable\n\nGenerated and reconciled by the deterministic fake model.")
+    )
+    return json.dumps(
+        {
+            "schema_version": 1,
+            "summary": f"Deterministic {label} delivery",
+            "artifact_content": artifact_content,
+            "actions": _deterministic_fake_actions(stage, prompt, current_message),
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
+def _deterministic_fake_actions(
+    stage: str,
+    prompt: str,
+    current_message: str,
+) -> list[dict[str, Any]]:
+    if stage == "builder" and "AGENTPROGRAM_FAKE_SCENARIO=illegal_path" in current_message:
+        return [
+            {
+                "tool_name": "filesystem.write_source",
+                "arguments": {
+                    "path": "../outside.js",
+                    "content": "module.exports = false;\n",
+                    "expected_hash": None,
+                },
+                "timeout_seconds": 30,
+            }
+        ]
+    if stage == "builder" and "AGENTPROGRAM_FAKE_SCENARIO=tool_failure" in current_message:
+        return [
+            {
+                "tool_name": "shell.test",
+                "arguments": {"command_index": 0},
+                "timeout_seconds": 30,
+            }
+        ]
+    files: tuple[tuple[str, str, str], ...]
+    if stage == "builder":
+        files = (
+            (
+                "filesystem.write_source",
+                "src/index.js",
+                "function add(left, right) { return left + right; }\nmodule.exports = { add };\n",
+            ),
+            (
+                "filesystem.write_test",
+                "tests/index.test.js",
+                "const test = require('node:test');\n"
+                "const assert = require('node:assert/strict');\n"
+                "const { add } = require('../src/index.js');\n"
+                "test('add', () => assert.equal(add(2, 3), 5));\n",
+            ),
+            (
+                "filesystem.write_build_config",
+                "package.json",
+                '{"name":"xingxie-generated-project","private":true,'
+                '"scripts":{"build":"node -e \\"require(\'./src/index.js\')\\"",'
+                '"test":"node --test"}}\n',
+            ),
+        )
+    elif stage == "deployer":
+        files = (
+            (
+                "filesystem.write_deployment_config",
+                "deploy/config/release.json",
+                '{"application":"xingxie-generated-project","version":1}\n',
+            ),
+            (
+                "filesystem.write_deployment_script",
+                "deploy/scripts/run.cmd",
+                "@echo off\r\nnode src\\index.js\r\n",
+            ),
+        )
+    else:
+        return []
+    return [
+        {
+            "tool_name": tool_name,
+            "arguments": {
+                "path": path,
+                "content": content,
+                "expected_hash": _prompt_file_hash(prompt, path),
+            },
+            "timeout_seconds": 30,
+        }
+        for tool_name, path, content in files
+    ]
+
+
+def _prompt_file_hash(prompt: str, path: str) -> str | None:
+    marker = f"--- {path} sha256="
+    start = prompt.find(marker)
+    if start == -1:
+        return None
+    digest = prompt[start + len(marker) : start + len(marker) + 64]
+    if len(digest) == 64 and all(character in "0123456789abcdef" for character in digest):
+        return digest
+    return None
+
+
+def _latest_message_content(invocation: ModelInvocation) -> str:
+    return invocation.messages[-1].content if invocation.messages else ""
 
 
 async def _cancel_aware_lines(

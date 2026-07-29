@@ -209,6 +209,14 @@ function registerIpc(input: {
   handle(IPC_CHANNELS.backendCommand, (_event, args) =>
     backend.execute(backendRequest(args[0]), "command"),
   );
+  handle(IPC_CHANNELS.backendStream, (event, args) => {
+    const request = backendRequest(args[0]);
+    return backend.executeStream(request, (frame) => {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send(IPC_CHANNELS.backendStreamFrame, request.requestId, frame);
+      }
+    });
+  });
   handle(IPC_CHANNELS.backendReplay, (_event, args) => {
     const afterEventId = args[0];
     if (typeof afterEventId !== "number") {

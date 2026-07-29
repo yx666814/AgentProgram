@@ -11,6 +11,7 @@ it("keeps the preload bridge on the explicit DesktopPort boundary", () => {
   expect(source).toContain('contextBridge.exposeInMainWorld("desktop"');
   expect(source).toContain("ipcRenderer.invoke(IPC_CHANNELS.");
   expect(source).toContain("ipcRenderer.on(IPC_CHANNELS.backendEvent");
+  expect(source).toContain("ipcRenderer.on(IPC_CHANNELS.backendStreamFrame");
   expect(source).not.toMatch(/ipcRenderer\.(?:send|sendSync|postMessage)|node:fs|child_process|process\.env|session.?token/i);
   expect(source).not.toMatch(/exposeInMainWorld\([^,]+,\s*ipcRenderer/u);
 });

@@ -3193,6 +3193,37 @@
         "title": "ModelRole",
         "type": "string"
       },
+      "OrchestrationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "correlation_id": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Correlation Id",
+            "type": "string"
+          },
+          "instruction": {
+            "maxLength": 100000,
+            "minLength": 1,
+            "title": "Instruction",
+            "type": "string"
+          },
+          "request_key": {
+            "maxLength": 128,
+            "minLength": 16,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "title": "Request Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_key",
+          "instruction",
+          "correlation_id"
+        ],
+        "title": "OrchestrationRequest",
+        "type": "object"
+      },
       "PreflightCheck": {
         "additionalProperties": false,
         "properties": {
@@ -8745,6 +8776,62 @@
         ]
       }
     },
+    "/api/v1/workflows/{workflow_id}/orchestration/stream": {
+      "post": {
+        "operationId": "orchestrate_workflow_stage_api_v1_workflows__workflow_id__orchestration_stream_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workflow_id",
+            "required": true,
+            "schema": {
+              "pattern": "^workflow_[a-z0-9]+$",
+              "title": "Workflow Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrchestrationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Orchestrate Workflow Stage",
+        "tags": [
+          "orchestration"
+        ]
+      }
+    },
     "/api/v1/workflows/{workflow_id}/quality-gates": {
       "get": {
         "operationId": "list_quality_gates_api_v1_workflows__workflow_id__quality_gates_get",
@@ -9218,8 +9305,8 @@
     }
   },
   "x-agentprogram-contract": {
-    "backendCommit": "2018e1e995e6072f959e7a5f64e13bf8737e0838",
-    "backendTree": "072c074e7ec25e585f86005eddeb3ccbd85aa7c1",
+    "backendCommit": "3f58d6a19d35fe849764202fec095fd906137372",
+    "backendTree": "19df7dea8f4b76815712544f10b766dc09df30b8",
     "generator": "frontend/scripts/export-backend-contracts.py",
     "schemaVersion": 1
   }

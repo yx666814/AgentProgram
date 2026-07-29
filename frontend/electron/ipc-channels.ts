@@ -1,6 +1,8 @@
 export const IPC_CHANNELS = {
   backendQuery: "desktop:backend:query",
   backendCommand: "desktop:backend:command",
+  backendStream: "desktop:backend:stream",
+  backendStreamFrame: "desktop:backend:stream-frame",
   backendReplay: "desktop:backend:replay",
   backendEvent: "desktop:backend:event",
   secretStore: "desktop:secret:store",

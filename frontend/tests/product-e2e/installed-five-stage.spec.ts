@@ -197,6 +197,43 @@ class DesktopDriver {
     return this.request("command", operationId, parameters, payload, expectedStatus);
   }
 
+  async stream(
+    operationId: BackendOperationId,
+    parameters?: unknown,
+    payload?: unknown,
+    expectedStatus: number | readonly number[] = 200,
+  ): Promise<unknown[]> {
+    this.requestSequence += 1;
+    const result = await this.page.evaluate(
+      async (input) => {
+        const request = {
+          operationId: input.operationId,
+          requestId: input.requestId,
+          ...(input.parameters === undefined ? {} : { parameters: input.parameters }),
+          ...(input.payload === undefined ? {} : { payload: input.payload }),
+        };
+        const frames: unknown[] = [];
+        const reply = await window.desktop.backend.stream(request, (frame) => {
+          frames.push(frame);
+        });
+        return { frames, reply };
+      },
+      {
+        operationId,
+        requestId: `stage9-stream-${String(this.requestSequence)}`,
+        parameters,
+        payload,
+      },
+    );
+    const accepted = Array.isArray(expectedStatus) ? expectedStatus : [expectedStatus];
+    if (!accepted.includes(result.reply.statusCode)) {
+      throw new Error(
+        `${operationId} returned ${String(result.reply.statusCode)}: ${JSON.stringify(result.reply.payload)}`,
+      );
+    }
+    return result.frames;
+  }
+
   async storeSecret(value: string, label: string): Promise<JsonObject> {
     return record(
       await this.page.evaluate(
@@ -663,7 +700,7 @@ async function completeStage(
   );
   const agentRun = record(runCreation.run, "agent run");
   const runId = text(agentRun.id, "agent run id");
-  const frames = await driver.command(
+  const frames = await driver.stream(
     "stream_agent_run_api_v1_agent_runs__run_id__stream_post",
     { path: { run_id: runId } },
     {
@@ -750,6 +787,139 @@ async function completeStage(
   return { artifactHash, gate };
 }
 
+async function completeStageThroughUi(
+  driver: DesktopDriver,
+  projectId: string,
+  workflowId: string,
+  stage: Stage,
+  expectedGate: "pass" | "warning",
+  expectedResolution: "automatic" | "pending" | "rewrite_required",
+): Promise<void> {
+  await driver.navigate(`/projects/${projectId}`);
+  await driver.navigate(`/projects/${projectId}/stages/${stage}`);
+  await expect(
+    driver.page.getByRole("heading", { name: STAGE_LABELS[stage], exact: true }),
+  ).toBeVisible();
+  const returnToDiscussion = driver.page.getByRole("button", { name: "返回讨论" });
+  if (await returnToDiscussion.isVisible()) {
+    await returnToDiscussion.click();
+    await expect(
+      driver.page.locator(".stage-summary-grid article").first().getByText(
+        "discussing",
+        { exact: true },
+      ),
+    ).toBeVisible();
+  }
+  await driver.page.getByLabel("AgentRun 指令").fill(
+    `Complete the ${stage} stage through the installed user-visible orchestration path.`,
+  );
+  const runButton = driver.page.getByRole("button", { name: "运行并完成本阶段" });
+  await expect(runButton).toBeEnabled();
+  await runButton.click();
+  const expectedStageState =
+    expectedResolution === "pending"
+      ? "waiting_approval"
+      : expectedResolution === "rewrite_required"
+        ? expectedGate === "warning"
+          ? "warning_blocked"
+          : "needs_fix"
+        : "completed";
+  await expect(
+    driver.page.locator(".stage-summary-grid article").first().getByText(
+      expectedStageState,
+      { exact: true },
+    ),
+  ).toBeVisible({ timeout: 180_000 });
+
+  const snapshot = await driver.snapshot(workflowId);
+  const stageRun = records(snapshot.stage_runs, "orchestrated stage runs").find(
+    (candidate) => candidate.stage === stage,
+  );
+  if (stageRun === undefined) {
+    throw new Error(`Orchestrated ${stage} StageRun was not found`);
+  }
+  const room = records(snapshot.rooms, "orchestrated rooms").find(
+    (candidate) => candidate.stage_run_id === stageRun.id,
+  );
+  if (room === undefined) {
+    throw new Error(`Orchestrated ${stage} Room was not found`);
+  }
+  const runList = record(
+    await driver.query("list_agent_runs_api_v1_rooms__room_id__agent_runs_get", {
+      path: { room_id: room.id },
+    }),
+    "orchestrated AgentRun list",
+  );
+  const formalRuns = records(runList.runs, "orchestrated AgentRuns").filter(
+    (run) => run.formal === true,
+  );
+  const formalRun = formalRuns.at(-1);
+  if (formalRun === undefined) {
+    throw new Error(`Orchestrated ${stage} formal AgentRun was not found`);
+  }
+  expect(formalRun.status).toBe("succeeded");
+  const runId = text(formalRun.id, "orchestrated AgentRun id");
+  const runSnapshot = record(
+    await driver.query("get_agent_run_api_v1_agent_runs__run_id__get", {
+      path: { run_id: runId },
+    }),
+    "orchestrated AgentRun snapshot",
+  );
+  expect(records(runSnapshot.calls, "orchestrated model calls")).toHaveLength(4);
+  const output = await driver.query(
+    "get_agent_run_output_api_v1_agent_runs__run_id__output_get",
+    { path: { run_id: runId } },
+  );
+  expect(text(output, "orchestrated AgentRun output")).toContain('"schema_version":1');
+
+  const gateList = record(
+    await driver.query("list_quality_gates_api_v1_workflows__workflow_id__quality_gates_get", {
+      path: { workflow_id: workflowId },
+    }),
+    "orchestrated gate list",
+  );
+  const gate = records(gateList.gates, "orchestrated gates")
+    .filter((candidate) => candidate.stage_run_id === stageRun.id)
+    .at(-1);
+  if (gate === undefined) {
+    throw new Error(`Orchestrated ${stage} gate was not found`);
+  }
+  expect(gate.status).toBe(expectedGate);
+  expect(gate.resolution).toBe(expectedResolution);
+
+  if (expectedResolution === "pending") {
+    await driver.navigate(`/projects/${projectId}/approvals`);
+    await expect(driver.page.getByRole("heading", { name: "审批、能力与风险" })).toBeVisible();
+    await driver.page.getByLabel("决定原因（可选）").fill(
+      `Approved from the installed UI for ${stage}.`,
+    );
+    const approveButton = driver.page.getByRole("button", { name: "批准" }).last();
+    await expect(approveButton).toBeEnabled();
+    await approveButton.click();
+    await waitUntil(async () => {
+      const updated = await driver.snapshot(workflowId);
+      const updatedRun = records(updated.stage_runs, "approved stage runs").find(
+        (candidate) => candidate.id === stageRun.id,
+      );
+      return updatedRun?.state === "completed";
+    }, 30_000, `The installed UI did not approve the ${stage} gate`);
+  }
+}
+
+async function setModeThroughUi(
+  driver: DesktopDriver,
+  projectId: string,
+  mode: "manual" | "autonomous",
+): Promise<void> {
+  await driver.navigate(`/projects/${projectId}`);
+  const group = driver.page.getByRole("group", { name: "执行模式" });
+  const label = mode === "manual" ? "Manual" : "Autonomous";
+  const button = group.getByRole("button", { name: label });
+  await expect(button).toBeEnabled();
+  await button.click();
+  await expect(button).toHaveAttribute("aria-pressed", "true");
+}
+
 async function captureInstalledViews(
   driver: DesktopDriver,
   projectId: string,
@@ -810,16 +980,23 @@ test("installed desktop completes and recovers the V1 product workflow", async (
   const installDir = join(root, "中文 空格", "星协安装");
   const dataRoot = join(root, "应用 数据");
   const directWorkspace = join(root, "真实 Direct 项目");
+  const orchestratedWorkspace = join(root, "真实 UI 编排项目");
   const managedSource = join(root, "Managed 导入源");
   const recoveryWorkspace = join(root, "崩溃 恢复项目");
   const directTracked = join(directWorkspace, "conflict.txt");
   await Promise.all([
     mkdir(join(directWorkspace, "src"), { recursive: true }),
+    mkdir(orchestratedWorkspace, { recursive: true }),
     mkdir(managedSource, { recursive: true }),
     mkdir(recoveryWorkspace, { recursive: true }),
   ]);
   await Promise.all([
     writeFile(join(directWorkspace, "README.md"), "# Installed Stage 9 project\n", "utf8"),
+    writeFile(
+      join(orchestratedWorkspace, "README.md"),
+      "# Installed user-visible orchestration project\n",
+      "utf8",
+    ),
     writeFile(directTracked, "baseline\n", "utf8"),
     writeFile(join(managedSource, "README.md"), "# Managed import\n", "utf8"),
     writeFile(join(recoveryWorkspace, "README.md"), "# Recovery project\n", "utf8"),
@@ -841,6 +1018,7 @@ test("installed desktop completes and recovers the V1 product workflow", async (
     expect(await exists(installedExe)).toBe(true);
     let launched = await launchInstalled(installedExe, dataRoot, [
       directWorkspace,
+      orchestratedWorkspace,
       managedSource,
       recoveryWorkspace,
     ]);
@@ -1008,6 +1186,113 @@ test("installed desktop completes and recovers the V1 product workflow", async (
         },
       );
     }
+
+    const orchestratedCreation = await createProject(driver, {
+      name: "阶段9 UI 自动编排项目",
+      goal: "仅通过安装版可见页面完成 Planner 到 Deployer",
+      path: orchestratedWorkspace,
+      mode: "direct",
+    });
+    const orchestratedRegistration = record(
+      orchestratedCreation.registration,
+      "orchestrated registration",
+    );
+    const orchestratedProject = record(
+      orchestratedRegistration.project,
+      "orchestrated project",
+    );
+    const orchestratedProjectId = text(orchestratedProject.id, "orchestrated project id");
+    await preflight(driver, orchestratedProjectId);
+    const orchestratedSnapshot = await createWorkflow(
+      driver,
+      orchestratedProjectId,
+      "安装版用户可见自动编排",
+    );
+    const orchestratedWorkflowId = text(
+      record(orchestratedSnapshot.workflow, "orchestrated workflow").id,
+      "orchestrated workflow id",
+    );
+    for (const room of records(orchestratedSnapshot.rooms, "orchestrated workflow rooms")) {
+      await driver.command(
+        "assign_room_models_api_v1_rooms__room_id__model_assignment_put",
+        { path: { room_id: room.id } },
+        {
+          primary_profile_id: profileIds[0],
+          reviewer_a_profile_id: profileIds[1],
+          reviewer_b_profile_id: profileIds[2],
+          expected_version: null,
+          correlation_id: correlation(`ui_assignment_${text(room.stage, "room stage")}`),
+        },
+      );
+    }
+
+    await completeStageThroughUi(
+      driver,
+      orchestratedProjectId,
+      orchestratedWorkflowId,
+      "planner",
+      "pass",
+      "pending",
+    );
+    await setModeThroughUi(driver, orchestratedProjectId, "autonomous");
+    await completeStageThroughUi(
+      driver,
+      orchestratedProjectId,
+      orchestratedWorkflowId,
+      "designer",
+      "pass",
+      "automatic",
+    );
+    await completeStageThroughUi(
+      driver,
+      orchestratedProjectId,
+      orchestratedWorkflowId,
+      "builder",
+      "warning",
+      "rewrite_required",
+    );
+    await setModeThroughUi(driver, orchestratedProjectId, "manual");
+    await completeStageThroughUi(
+      driver,
+      orchestratedProjectId,
+      orchestratedWorkflowId,
+      "builder",
+      "warning",
+      "pending",
+    );
+    await completeStageThroughUi(
+      driver,
+      orchestratedProjectId,
+      orchestratedWorkflowId,
+      "reviewer",
+      "warning",
+      "pending",
+    );
+    await completeStageThroughUi(
+      driver,
+      orchestratedProjectId,
+      orchestratedWorkflowId,
+      "deployer",
+      "pass",
+      "pending",
+    );
+    const orchestratedCompleted = await driver.snapshot(orchestratedWorkflowId);
+    expect(record(orchestratedCompleted.workflow, "orchestrated completed workflow").status).toBe(
+      "completed",
+    );
+    expect(
+      records(orchestratedCompleted.stage_runs, "orchestrated completed stages").every(
+        (run) => run.state === "completed",
+      ),
+    ).toBe(true);
+    await runProcess(process.execPath, ["--test"], {
+      cwd: orchestratedWorkspace,
+      timeoutMs: 60_000,
+    });
+    await runProcess(process.execPath, ["-e", "require('./src/index.js')"], {
+      cwd: orchestratedWorkspace,
+      timeoutMs: 60_000,
+    });
 
     await completeStage(driver, workflowId, "planner", {
       expectedGate: "pass",
@@ -1221,6 +1506,7 @@ test("installed desktop completes and recovers the V1 product workflow", async (
 
     launched = await relaunchAfterCrash(installedExe, dataRoot, [
       directWorkspace,
+      orchestratedWorkspace,
       managedSource,
       recoveryWorkspace,
     ]);
@@ -1306,6 +1592,7 @@ test("installed desktop completes and recovers the V1 product workflow", async (
     await runProcess(installer, ["/S", `/D=${installDir}`]);
     launched = await launchInstalled(join(installDir, "星协.exe"), dataRoot, [
       directWorkspace,
+      orchestratedWorkspace,
       managedSource,
       recoveryWorkspace,
     ]);
@@ -1313,6 +1600,10 @@ test("installed desktop completes and recovers the V1 product workflow", async (
     driver = launched.driver;
     const persisted = await driver.snapshot(workflowId);
     expect(record(persisted.workflow, "reinstalled workflow").status).toBe("completed");
+    const persistedOrchestration = await driver.snapshot(orchestratedWorkflowId);
+    expect(record(persistedOrchestration.workflow, "reinstalled orchestration workflow").status).toBe(
+      "completed",
+    );
     await driver.navigate(`/projects/${directProjectId}`);
     await expect(driver.page.getByText("安装版五阶段正式交付")).toBeVisible();
 
@@ -1320,15 +1611,18 @@ test("installed desktop completes and recovers the V1 product workflow", async (
       schemaVersion: 1,
       projectId: directProjectId,
       workflowId,
+      orchestratedProjectId,
+      orchestratedWorkflowId,
       recoveryWorkflowId,
       managedProjectId,
       stages: STAGES,
-      formalAgentRuns: 6,
-      qualityGateEvaluations: 6,
-      lockedArtifactVersions: 5,
-      handoffs: 5,
-      manualApprovals: 4,
-      autonomousHandoffs: 1,
+      formalAgentRuns: 12,
+      qualityGateEvaluations: 12,
+      lockedArtifactVersions: 10,
+      handoffs: 10,
+      manualApprovals: 8,
+      autonomousHandoffs: 2,
+      userVisibleOrchestration: true,
       warningRework: true,
       capabilityApproved: true,
       capabilityRejected: true,

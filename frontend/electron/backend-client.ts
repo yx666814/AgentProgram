@@ -15,6 +15,12 @@ import type { SidecarManager } from "./sidecar";
 
 const RESPONSE_LIMIT_BYTES = 16 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 30_000;
+const STREAM_TIMEOUT_MS = 15 * 60_000;
+const ORCHESTRATION_STREAM_TIMEOUT_MS = 4 * 60 * 60_000;
+const STREAM_OPERATIONS = new Set([
+  "stream_agent_run_api_v1_agent_runs__run_id__stream_post",
+  "orchestrate_workflow_stage_api_v1_workflows__workflow_id__orchestration_stream_post",
+]);
 const WORKFLOW_ID_PATTERN = /^workflow_[a-z0-9]+$/;
 
 function errorPayload(code: string, message: string, retryable: boolean): unknown {
@@ -91,6 +97,46 @@ async function responsePayload(response: Response): Promise<unknown> {
   return JSON.parse(content);
 }
 
+async function streamPayload(
+  response: Response,
+  onFrame: (frame: unknown) => void,
+): Promise<void> {
+  const contentType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+  if (contentType !== "application/x-ndjson" || response.body === null) {
+    throw new Error("Backend stream response is not NDJSON");
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffered = "";
+  let receivedBytes = 0;
+
+  const emitLines = (final: boolean) => {
+    const lines = buffered.split(/\r?\n/u);
+    buffered = final ? "" : (lines.pop() ?? "");
+    for (const line of lines) {
+      if (line.trim() !== "") {
+        onFrame(JSON.parse(line) as unknown);
+      }
+    }
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      buffered += decoder.decode();
+      emitLines(true);
+      return;
+    }
+    receivedBytes += value.byteLength;
+    if (receivedBytes > RESPONSE_LIMIT_BYTES) {
+      await reader.cancel("Backend stream exceeded the desktop response size limit");
+      throw new Error("Backend stream exceeded the desktop response size limit");
+    }
+    buffered += decoder.decode(value, { stream: true });
+    emitLines(false);
+  }
+}
+
 export class BackendClient {
   private workflowObserver: ((workflowId: string) => void) | null = null;
 
@@ -109,6 +155,60 @@ export class BackendClient {
     kind: "query" | "command",
   ): Promise<RuntimeBackendReply> {
     return this.executeRequest(request, kind);
+  }
+
+  async executeStream(
+    request: RuntimeBackendRequest,
+    onFrame: (frame: unknown) => void,
+  ): Promise<RuntimeBackendReply> {
+    if (!STREAM_OPERATIONS.has(request.operationId)) {
+      return errorReply(
+        request.requestId,
+        400,
+        "desktop.stream_operation_forbidden",
+        "Only frozen AgentRun and orchestration operations may use the stream channel",
+      );
+    }
+    try {
+      const connection = await this.sidecar.connection();
+      const fetchRequest = buildBackendFetchRequest({
+        request,
+        kind: "command",
+        operations: this.operations,
+        origin: connection.origin,
+        sessionToken: connection.sessionToken,
+        timeoutSignal: AbortSignal.timeout(
+          request.operationId ===
+            "orchestrate_workflow_stage_api_v1_workflows__workflow_id__orchestration_stream_post"
+            ? ORCHESTRATION_STREAM_TIMEOUT_MS
+            : STREAM_TIMEOUT_MS,
+        ),
+      });
+      const response = await fetch(fetchRequest.url, fetchRequest.init);
+      if (!response.ok) {
+        return {
+          requestId: request.requestId,
+          statusCode: response.status,
+          payload: await responsePayload(response),
+        };
+      }
+      await streamPayload(response, (frame) => {
+        this.localPaths.observeBackendPayload(frame);
+        onFrame(frame);
+      });
+      return { requestId: request.requestId, statusCode: response.status, payload: null };
+    } catch (error) {
+      if (error instanceof BackendRequestValidationError) {
+        return errorReply(request.requestId, 400, error.code, error.message);
+      }
+      return errorReply(
+        request.requestId,
+        503,
+        "desktop.backend_stream_failed",
+        "Desktop backend stream failed",
+        true,
+      );
+    }
   }
 
   async executeInternal(

@@ -30,6 +30,31 @@ _BUILD_FILES = frozenset(
         "Dockerfile",
     }
 )
+_SOURCE_EXTENSIONS = frozenset(
+    {
+        ".c",
+        ".cc",
+        ".cpp",
+        ".cs",
+        ".css",
+        ".go",
+        ".h",
+        ".html",
+        ".java",
+        ".js",
+        ".jsx",
+        ".kt",
+        ".php",
+        ".py",
+        ".rb",
+        ".rs",
+        ".scss",
+        ".swift",
+        ".ts",
+        ".tsx",
+        ".vue",
+    }
+)
 
 
 class PathGuard:
@@ -90,7 +115,7 @@ def _classify(path: str, stage: Stage, manifest: ProjectManifest) -> StagePathSc
             return scope
     if _matches(path, f"drafts/{stage.value}"):
         return StagePathScope.STAGE_DRAFT
-    if _matches_any(path, manifest.source_paths):
+    if _matches_any(path, manifest.source_paths) or _is_conventional_source_path(path):
         if _is_test_path(path):
             return StagePathScope.PROJECT_TEST
         return StagePathScope.PROJECT_SOURCE
@@ -115,6 +140,12 @@ def _is_test_path(path: str) -> bool:
         or name.startswith("test_")
         or name.endswith(("_test.py", ".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx"))
     )
+
+
+def _is_conventional_source_path(path: str) -> bool:
+    name = path.rsplit("/", maxsplit=1)[-1]
+    suffix = f".{name.rsplit('.', maxsplit=1)[-1]}" if "." in name else ""
+    return suffix.casefold() in _SOURCE_EXTENSIONS
 
 
 def _matches(path: str, prefix: str) -> bool:

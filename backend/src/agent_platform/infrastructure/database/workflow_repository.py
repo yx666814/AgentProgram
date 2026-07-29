@@ -172,7 +172,14 @@ class SqlAlchemyWorkflowRepository:
             raise _not_found("stage_run", "Stage run was not found")
         _require_version("workflow", workflow.version, expected_workflow_version)
         _require_version("stage_run", run.version, expected_stage_version)
-        if WorkflowStatus(workflow.status) is not WorkflowStatus.RUNNING:
+        workflow_status = WorkflowStatus(workflow.status)
+        current = StageRunState(run.state)
+        resumes_warning = (
+            workflow_status is WorkflowStatus.WARNING_BLOCKED
+            and current is StageRunState.WARNING_BLOCKED
+            and target is StageRunState.DISCUSSING
+        )
+        if workflow_status is not WorkflowStatus.RUNNING and not resumes_warning:
             raise DomainError(
                 code="workflow.not_running",
                 message="Workflow is not running",
@@ -184,7 +191,6 @@ class SqlAlchemyWorkflowRepository:
                 message="Only the current stage can transition",
                 category=ErrorCategory.CONFLICT,
             )
-        current = StageRunState(run.state)
         if current is StageRunState.LOCKED:
             raise DomainError(
                 code="stage_run.locked",
@@ -195,6 +201,8 @@ class SqlAlchemyWorkflowRepository:
             run.started_at = updated_at
         run.state = target.value
         run.version += 1
+        if resumes_warning:
+            workflow.status = WorkflowStatus.RUNNING.value
         unlocked: StageRunRow | None = None
         room = await self._require_room_for_stage_run_row(run.id)
         if target is StageRunState.COMPLETED:

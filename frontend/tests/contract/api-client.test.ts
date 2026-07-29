@@ -13,6 +13,10 @@ function transportWithReply(statusCode: number, payload: unknown): ApiTransport 
   return {
     query: respond,
     command: respond,
+    stream: (request: BackendRequest, listener: (frame: unknown) => void) => {
+      listener(payload);
+      return Promise.resolve({ requestId: request.requestId, statusCode, payload: null });
+    },
     subscribe: () => () => undefined,
     requestReplay: () => Promise.resolve(),
   };

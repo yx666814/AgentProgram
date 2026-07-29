@@ -11,6 +11,25 @@ export function createDesktopPort(): DesktopPort {
     command<T>(request: BackendRequest): Promise<BackendReply<T>> {
       return ipcRenderer.invoke(IPC_CHANNELS.backendCommand, request) as Promise<BackendReply<T>>;
     },
+    stream(request: BackendRequest, listener: (frame: unknown) => void): Promise<BackendReply<null>> {
+      const receive = (
+        _event: Electron.IpcRendererEvent,
+        requestId: string,
+        frame: unknown,
+      ) => {
+        if (requestId === request.requestId) {
+          listener(frame);
+        }
+      };
+      ipcRenderer.on(IPC_CHANNELS.backendStreamFrame, receive);
+      const pending = ipcRenderer.invoke(
+        IPC_CHANNELS.backendStream,
+        request,
+      ) as Promise<BackendReply<null>>;
+      return pending.finally(() => {
+        ipcRenderer.removeListener(IPC_CHANNELS.backendStreamFrame, receive);
+      });
+    },
     subscribe(listener: (event: PersistedEvent) => void): () => void {
       const receive = (_event: Electron.IpcRendererEvent, event: PersistedEvent) => {
         listener(event);

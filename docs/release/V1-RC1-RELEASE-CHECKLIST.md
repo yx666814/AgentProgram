@@ -1,9 +1,12 @@
 # 星协 V1.0.0-rc.1 发布候选检查表
 
 > 建立日期：2026-07-16
-> 发布分支：`codex/v1-release-prep`
-> 基线：`c851db0918806f02f1156e291bbbf7aa06671eba`
-> 状态：发布候选版本已锁定；用户已确认 RC1 暂不进行 Authenticode 签名，尚未完成真实模型与物理桌面人工验收，不是正式 V1 发布。
+> 最近更新：2026-07-29
+> 发布分支：`codex/rc1-manual-acceptance-guide`
+> 合并基线：`f060239be993bd2a880619032cdf317048cd9ab1`
+> 编排实现提交：`3f58d6a19d35fe849764202fec095fd906137372`
+> 双模式 UI 提交：`2e079b3024c967900b015ebe13a510ec2cb13f50`
+> 状态：自动编排发布阻塞与当前 PR CI 已解除；真实模型、物理桌面与独立审查仍待完成，因此不是正式 V1 发布。
 
 ## 1. 版本锁定
 
@@ -17,60 +20,90 @@
 
 `1.0.0rc1` 与 `1.0.0-rc.1` 表示同一个发布候选版本；差异只来自 Python PEP 440 与 npm SemVer 的格式要求。
 
-## 2. 自动化门禁
+## 2. 自动编排闭环
+
+- [x] 新增高层 `POST /api/v1/workflows/{workflow_id}/orchestration/stream` NDJSON 命令。
+- [x] 正式运行由后端协调 StageRun、Task、Primary/Reviewer A/Reviewer B/P2R AgentRun、ToolCall、ArtifactVersion、Gate、Approval/Policy、Checkpoint 与 Handoff。
+- [x] 模型只提交 `StageExecutionPlan v1`；模型不能直接读取文件、执行 Shell 或选择正式产物路径。
+- [x] 文件覆盖要求当前 SHA-256，命令只允许引用 Manifest 中的 `command_index`。
+- [x] 失败、取消和应用重启保留真实 Task、AgentRun、ToolCall 与恢复记录。
+- [x] `warning_blocked` 必须由用户点击“返回讨论”恢复，不被后台静默越过。
+- [x] Stage 页面使用真实 ModelProfile 和当前 Room 三槽位分配发起正式编排。
+- [x] 安装版用户可见五阶段编排、Manual/Autonomous、Warning 返工和审批闭环通过。
+
+最终安装版产品报告：
+
+```text
+12 formal AgentRuns
+12 quality gate evaluations
+10 locked ArtifactVersions
+10 Handoffs
+8 manual approvals
+2 autonomous Handoffs
+userVisibleOrchestration = true
+```
+
+## 3. 自动化门禁
 
 - [x] 后端版本源和 `uv.lock` 已更新。
 - [x] 前端版本源和 `package-lock.json` 已更新。
-- [x] CI 安装器 artifact 路径已更新。
-- [x] 安装版产品 E2E 安装器文件名已更新。
-- [x] 冻结契约已重新导出，仍为 68 REST / 41 events / 5 StageContracts / 23 tools。
-- [x] Ruff format/check 通过。
-- [x] Mypy 138 个源文件通过。
-- [x] Pytest 732 passed / 12 skipped。
-- [x] Vitest 39 个文件 / 70 个测试通过。
-- [x] Playwright 58 个测试通过。
-- [x] RC1 NSIS 安装器构建通过。
-- [x] RC1 安装版 product E2E 在普通 TEMP 与 Windows 8.3 短路径 TEMP 下通过。
-- [x] 发布准备 PR 的 backend/frontend/windows-product CI 全绿。
+- [x] 冻结契约已重新导出：69 REST / 41 events / 5 StageContracts / 23 tools。
+- [x] 契约元数据指向后端提交 `3f58d6a` 和 backend tree `19df7dea8f4b76815712544f10b766dc09df30b8`。
+- [x] Ruff format：246 个文件通过。
+- [x] Ruff check：通过。
+- [x] Mypy strict：144 个源文件通过。
+- [x] Pytest：733 passed / 12 skipped。
+- [x] Vitest：39 个文件 / 75 个测试通过。
+- [x] Playwright：58 个测试通过。
+- [x] RC1 NSIS 安装器重新构建通过。
+- [x] 当前安装器的用户可见编排 product E2E：1 passed。
+- [x] 既有阶段 9 基线的普通 TEMP、Windows 8.3 短路径、卸载重装与恢复门禁保持通过。
+- [x] 当前分支 PR 的 backend/frontend/windows-product CI 全绿；Run `30400155883` 的 Job Summary 保留安装器 Hash 和产品报告关键计数，测试证据 artifact 因历史存储配额未实际生成。
 
-CI 证据：GitHub Actions Run [`29491244086`](https://github.com/yx666814/AgentProgram/actions/runs/29491244086) 于 2026-07-16 完成，`backend`、`frontend`、`windows-product` 均为 `success`；其中 Windows 安装器构建、安装后产品 E2E 与 artifact 上传全部通过。
+历史 CI 基线：GitHub Actions Run [`29492919058`](https://github.com/yx666814/AgentProgram/actions/runs/29492919058) 曾验证合并前阶段 9 安装版链路。该 Run 不包含本轮自动编排实现，不能作为当前候选安装器的分发身份。
 
-## 3. RC1 本地产物证据
+当前 PR 证据：GitHub Actions Run [`30400155883`](https://github.com/yx666814/AgentProgram/actions/runs/30400155883) 在提交 `600c8a7` 上完成，`backend`、`frontend`、`windows-product` 均为 `success`；安装器构建和安装版 product E2E（`1 passed`）通过。仓库历史 artifact 配额已满，本 Run 没有可下载 artifact，不能把 Job Summary 中的 CI 安装器身份当成公开下载项。
+
+## 4. 当前本地 RC1 产物证据
+
+以下值只对应 2026-07-29 在 `3f58d6a` 后端实现和最新冻结契约上构建、并通过最终 product E2E 的本地文件：
 
 | 产物 | 字节 | SHA-256 | 签名 |
 | --- | ---: | --- | --- |
-| `frontend/release/XingXie-1.0.0-rc.1-Setup.exe` | 122297237 | `99379C6C0A2289E3285C9C2132932BF4AA8E49B2E9E8462D78743A7B082628A9` | `NotSigned` |
-| `frontend/release/win-unpacked/星协.exe` | 225486336 | `50F20B0B2717971652574CF50BED01566BD10DE16CEBC9E1C7DD7851ED66E0C0` | `NotSigned` |
-| `frontend/release/win-unpacked/resources/app.asar` | 13851496 | `14FDB8C9114BF9B0FBB76D1E17C1348A1AECB8D987CD0515EF88976A906CC551` | 不适用 |
-| `agent-platform-desktop-sidecar.exe` | 13019335 | `6EDC761270755761B8D3646A1DD8F74A9EE4B547C944C1CB71DC01B116A38CCC` | `NotSigned` |
+| `frontend/release/XingXie-1.0.0-rc.1-Setup.exe` | 122253379 | `26D0217BBCF8F8E040C9890A85B339E249BFCF8A6387DA74935C9A7F993D059B` | `NotSigned` |
+| `frontend/release/win-unpacked/星协.exe` | 225485824 | `1DBAF7DF25F71F7682C4B1B18E053149322743306840450B8E9E2549AFADB3F8` | `NotSigned` |
+| `frontend/release/win-unpacked/resources/backend/agent-platform-desktop-sidecar.exe` | 13047226 | `4523EECEE70A5A3959C1831218B131F759BF94B49C47875CC172554027C163B2` | `NotSigned` |
+| `frontend/release/win-unpacked/resources/app.asar` | 13925302 | `8BEC7C7F12F7D6F03C235AAF31E0F08EF9B60EF47B28FBF5EFAC6D202913DE4F` | 不适用 |
 
-冻结 `frontend/contracts/SHA256SUMS.json` 的 SHA-256 为 `86C8868D2AF6D6682D47651210A9AF853AAFEAEE4CDDD1B3CD07EC0FB8F89C30`。
+本地安装器校验文件：`docs/release/V1-RC1-LOCAL-SHA256SUMS.txt`。本地安装器尚未获得公开上传授权，不是 GitHub Release 下载项。
 
-### 指定 CI 候选分发产物
+冻结契约：
 
-| 来源 | 产物 | 字节 | SHA-256 | 签名 |
-| --- | --- | ---: | --- | --- |
-| GitHub Actions Run [`29492919058`](https://github.com/yx666814/AgentProgram/actions/runs/29492919058) / `windows-product-evidence` | `XingXie-1.0.0-rc.1-Setup.exe` | 121318449 | `D10CD232BCE9EDFAE4F22934C2EF1772D6EA9A775AC40B2ED20A585ADEC0DE66` | `NotSigned` |
+| 文件 | SHA-256 |
+| --- | --- |
+| `frontend/contracts/openapi.json` | `47E838C0B27269D2AD83D49CFF2C752BD82A7C4817AF5B8A8C5CDA1CE0CFC47E` |
+| `frontend/contracts/events.schema.json` | `57C07FC9ABF8FFE793EC4228C6A4ADF547E08F93F680CA47EA2B99EC3C755F62` |
+| `frontend/contracts/capabilities.json` | `1EF9F820D4D4F89D7D54B2AE59B12368B4834A8BA786E1254DC4461E78367520` |
+| `frontend/contracts/SHA256SUMS.json` | `938E6EC4C40FB544618A86025338CCD18CB38657478B0E922DD978FFCD64BA06` |
 
-CI 候选产物与本地产物的大小和哈希不同，说明安装器构建不是字节级可复现的。发布校验必须绑定实际上传的文件；不得将一次构建的哈希用于另一次构建。
+安装器构建不是字节级可复现的。对外分发时必须重新计算实际上传文件的大小、SHA-256 和签名状态，不能复用其他本地构建或历史 CI Run 的值。
 
-## 4. 用户必须完成的发布验收
+## 5. 用户必须完成的发布验收
 
 ### 未签名分发决策
 
-- [x] 用户于 2026-07-16 确认 RC1 暂不购买或配置 Authenticode 签名。
-- [x] 接受 Windows SmartScreen 可能显示“未知发布者”，并可能需要用户选择“更多信息 → 仍要运行”。
-- [x] 安装器、`星协.exe` 和 Sidecar 当前签名状态已如实记录为 `NotSigned`，不得宣称“已验证发布者”。
-- [x] Release Notes 明确说明候选版未签名及其安装提示。
-- [x] 指定 CI 候选产物的字节数、SHA-256、签名状态和来源 Run 已记录，并生成标准校验文件。
-- [ ] 对外上传安装器前，对实际上传文件重新计算 SHA-256，并确认与同批发布的校验文件一致。
+- [x] 用户确认 RC1 暂不购买或配置 Authenticode 签名。
+- [x] 接受 Windows SmartScreen 可能显示“未知发布者”。
+- [x] 安装器、主程序和 Sidecar 的 `NotSigned` 状态已如实记录。
+- [x] Release Notes 明确说明未签名风险和校验方式。
+- [ ] 对外上传前重新计算实际文件 SHA-256，并生成同批校验文件。
 
-可信 Authenticode 签名已延期，不再作为本次 RC1 的发布硬门禁；未来若启用签名，凭据只能存放在受保护的签名服务或 GitHub Actions Secrets 中，不得提交到仓库或聊天。
+可信 Authenticode 签名已延期，不是本次 RC1 的硬门禁；未来若启用，凭据只能保存在受保护的签名服务或 GitHub Actions Secrets 中。
 
 ### 真实模型
 
-- [ ] OpenAI Compatible 连接、流式、取消、重试、错误和五阶段人工验收。
-- [ ] Anthropic 连接、流式、取消、重试、错误和五阶段人工验收。
+- [ ] OpenAI Compatible：连接、流式、取消、错误恢复和五阶段人工验收。
+- [ ] Anthropic：连接、流式、取消、错误恢复和五阶段人工验收。
 - [ ] 确认 API Key 不进入数据库、日志、事件、诊断包或截图。
 
 ### 物理桌面
@@ -81,12 +114,15 @@ CI 候选产物与本地产物的大小和哈希不同，说明安装器构建�
 - [ ] 浅色/深色、键盘焦点、系统文件对话框。
 - [ ] 中文空格路径安装、卸载、重装和无残留进程。
 
-### 独立审查
+### 审查与分发
 
-- [ ] 发布准备 PR 由独立审查者确认。
-- [ ] 零已知 P0/P1。
-- [ ] Release Notes、已知问题和回滚步骤与真实实现一致。
+- [x] 当前 PR 的三个 CI job 全绿（Run `30400155883`）。
+- [ ] PR 由独立审查者确认。
+- [x] 当前零已知 P0/P1。
+- [ ] Release Notes、已知问题和回滚步骤与实际上传文件一致。
 
-## 5. 正式发布边界
+详细操作见 `docs/release/V1-RC1-MANUAL-ACCEPTANCE.md`。
 
-只有真实模型、物理桌面、独立审查、未签名风险告知和安装器哈希核对全部完成，才能把版本从 `1.0.0-rc.1` 更新为 `1.0.0`。根据 2026-07-16 的用户决策，Authenticode 签名不是本次 RC1 的硬门禁；未签名状态必须始终如实披露。创建 `v1.0.0` Tag、GitHub Release 或上传公开安装器前，必须取得用户明确授权。
+## 6. 正式发布边界
+
+当前自动编排实现和 Fake Model 安装版闭环已经完成，但真实模型、物理桌面和独立审查仍是 RC1 人工验收项。创建 `v1.0.0` Tag、GitHub Release 或上传公开安装器前，必须取得用户明确授权；在此之前不得宣称正式 V1 已发布。

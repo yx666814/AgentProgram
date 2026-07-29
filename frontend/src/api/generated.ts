@@ -860,6 +860,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workflows/{workflow_id}/orchestration/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Orchestrate Workflow Stage */
+        post: operations["orchestrate_workflow_stage_api_v1_workflows__workflow_id__orchestration_stream_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workflows/{workflow_id}/quality-gates": {
         parameters: {
             query?: never;
@@ -2050,6 +2067,15 @@ export interface components {
          * @enum {string}
          */
         ModelRole: "primary" | "reviewer_a" | "reviewer_b";
+        /** OrchestrationRequest */
+        OrchestrationRequest: {
+            /** Correlation Id */
+            correlation_id: string;
+            /** Instruction */
+            instruction: string;
+            /** Request Key */
+            request_key: string;
+        };
         /** PreflightCheck */
         PreflightCheck: {
             /** Code */
@@ -4864,6 +4890,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Workflow"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    orchestrate_workflow_stage_api_v1_workflows__workflow_id__orchestration_stream_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrchestrationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

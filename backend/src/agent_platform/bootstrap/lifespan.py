@@ -24,6 +24,7 @@ from agent_platform.application.model_runtime import (
     PromptComposer,
     RollingSummaryBuilder,
 )
+from agent_platform.application.orchestration import OrchestrationApplicationService
 from agent_platform.application.projects.service import ProjectApplicationService
 from agent_platform.application.tooling import ToolApplicationService
 from agent_platform.application.workflows import WorkflowApplicationService
@@ -281,6 +282,7 @@ def _clear_resource_state(app: FastAPI) -> None:
         "model_configuration_service",
         "agent_runtime_service",
         "agent_run_registry",
+        "orchestration_service",
         "secret_store",
         "logging_runtime",
         "database_maintenance",
@@ -402,6 +404,7 @@ def build_lifespan(
                 ),
                 agent_run_registry,
             )
+            workflow_service = WorkflowApplicationService(database)
             tool_service = ToolApplicationService(
                 database,
                 settings,
@@ -418,6 +421,16 @@ def build_lifespan(
                 agent_run_registry,
                 tool_process_registry,
                 worker_supervisor,
+            )
+            orchestration_service = OrchestrationApplicationService(
+                database,
+                settings,
+                workflow_service,
+                agent_runtime_service,
+                tool_service,
+                governance_service,
+                tool_catalog,
+                file_tools,
             )
             if await _database_schema_is_current(database):
                 await governance_service.recover_incomplete_workflows()
@@ -452,7 +465,7 @@ def build_lifespan(
                 outbox_dispatcher_task = asyncio.create_task(outbox_dispatcher.run())
             app.state.database = database
             app.state.project_service = ProjectApplicationService(database, settings)
-            app.state.workflow_service = WorkflowApplicationService(database)
+            app.state.workflow_service = workflow_service
             app.state.event_stream_broker = event_stream_broker
             app.state.event_ticket_store = event_ticket_store
             app.state.event_stream_service = event_stream_service
@@ -462,6 +475,7 @@ def build_lifespan(
             app.state.tool_process_registry = tool_process_registry
             app.state.tool_service = tool_service
             app.state.governance_service = governance_service
+            app.state.orchestration_service = orchestration_service
             app.state.secret_store = resolved_secret_store
             app.state.worker_supervisor = worker_supervisor
             app.state.worker_watchdog_task = worker_watchdog_task

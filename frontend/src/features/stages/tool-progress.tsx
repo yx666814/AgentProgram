@@ -19,7 +19,7 @@ export function ToolProgress() {
         ))}
         {agentRuns.length === 0 && toolCalls.length === 0 ? <p className="empty-copy">没有 AgentRun 或后端已鉴权的 ToolCall。</p> : null}
       </div>
-      <p className="contract-note">实时模型输出使用后端 NDJSON stream；当前 DesktopPort 未暴露流式方法，因此这里只显示持久状态，不伪造 model.delta。</p>
+      <p className="contract-note">此处只显示持久化 AgentRun 与 ToolCall 审计；实时 NDJSON 输出、取消和最终结果位于上方 AgentRun 面板。</p>
     </section>
   );
 }
