@@ -9,6 +9,7 @@ import {
 } from "../../api/backend-api";
 import { useBackend } from "../../api/backend-context";
 import { ApiRequestError } from "../../api/errors";
+import { xingxieIconUrl } from "../../assets/branding";
 import { ApiErrorState } from "../../components/api-error-state";
 import { Button } from "../../components/button";
 import { useAsyncResource } from "../../components/use-async-resource";
@@ -109,7 +110,7 @@ export function StartupPage() {
     <main className="startup-screen">
       <section className="startup-card" aria-labelledby="startup-title">
         <header className="startup-heading">
-          <img alt="" src="/xingxie-icon.svg" />
+          <img alt="" src={xingxieIconUrl} />
           <div>
             <h1 id="startup-title">启动星协</h1>
             <p>本地后端与恢复检查</p>

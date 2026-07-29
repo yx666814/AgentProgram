@@ -26,6 +26,7 @@ Planner -> Designer -> Builder -> Reviewer -> Deployer
 - Agent 运行、NDJSON 流式状态、取消、失败重跑和应用重启恢复。
 - Tool Catalog、StageContract、PathGuard、CapabilityRequest、当前文件 Hash 与 Manifest 命令索引的逐层校验。
 - Electron 桌面壳、Sidecar 动态端口、本地 SecretStore 桥接、诊断导出和 Windows NSIS 安装器。
+- 安装版启动页、侧栏和 Windows 快捷方式统一使用透明圆角品牌图标。
 
 最终安装版产品 E2E 已从用户可见 UI 验证：
 
@@ -47,7 +48,7 @@ Deployer Manual + UI 审批
 
 | 文件 | 字节 | SHA-256 | Authenticode |
 | --- | ---: | --- | --- |
-| `XingXie-1.0.0-rc.1-Setup.exe` | 122253379 | `26D0217BBCF8F8E040C9890A85B339E249BFCF8A6387DA74935C9A7F993D059B` | `NotSigned` |
+| `XingXie-1.0.0-rc.1-Setup.exe` | 122294271 | `4D830304D516EA87F01332AA7C45B4D7E849652BD09DA0D5A1C81ACD58684192` | `NotSigned` |
 
 PowerShell 校验命令：
 
@@ -109,7 +110,7 @@ Get-FileHash .\XingXie-1.0.0-rc.1-Setup.exe -Algorithm SHA256
 - Playwright：58 passed；
 - 最终安装器 product E2E：1 passed。
 
-GitHub Actions Run [`30400155883`](https://github.com/yx666814/AgentProgram/actions/runs/30400155883) 在提交 `600c8a7` 上完成，`backend`、`frontend`、`windows-product` 均为 `success`；Windows job 的安装器构建、安装版 product E2E（`1 passed`）和证据摘要成功。仓库历史 artifact 已占满配额，因此本 Run 没有生成可下载 artifact；本地候选安装器身份仍以上文和同批校验文件为准。
+GitHub Actions Run [`30445226287`](https://github.com/yx666814/AgentProgram/actions/runs/30445226287) 在提交 `db0cc2a` 上完成，`backend`、`frontend`、`windows-product` 均为 `success`；Windows job 的安装器构建、安装版 product E2E（`1 passed`）和证据摘要成功。仓库历史 artifact 已占满配额，因此本 Run 没有生成可下载 artifact；本地候选安装器身份仍以上文和同批校验文件为准。
 
 历史 Run `29492919058` 只证明合并前阶段 9 基线，不包含本轮自动编排实现。
 

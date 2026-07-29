@@ -338,6 +338,7 @@ async function launchInstalled(
   const page = await app.firstWindow();
   await page.waitForLoadState("domcontentloaded");
   await expect(page.getByRole("heading", { name: "启动星协" })).toBeVisible();
+  await expect(page.locator(".startup-heading img")).toHaveJSProperty("naturalWidth", 1024);
   const enterProjects = page.getByRole("button", { name: "进入项目" });
   let latestStatus = "系统状态尚未呈现";
   for (let attempt = 0; attempt < 6; attempt += 1) {
@@ -947,6 +948,9 @@ async function captureInstalledViews(
   for (const [name, route, expectedText] of routes) {
     await driver.navigate(route);
     await expect(driver.page.getByText(expectedText, { exact: false }).first()).toBeVisible();
+    if (route !== "/startup") {
+      await expect(driver.page.locator(".brand-icon")).toHaveJSProperty("naturalWidth", 1024);
+    }
     const screenshotPath = testInfo.outputPath(`${name}.png`);
     await driver.page.screenshot({ fullPage: true, path: screenshotPath });
     await testInfo.attach(name, {

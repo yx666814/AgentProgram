@@ -58,11 +58,11 @@ userVisibleOrchestration = true
 - [x] RC1 NSIS 安装器重新构建通过。
 - [x] 当前安装器的用户可见编排 product E2E：1 passed。
 - [x] 既有阶段 9 基线的普通 TEMP、Windows 8.3 短路径、卸载重装与恢复门禁保持通过。
-- [x] 当前分支 PR 的 backend/frontend/windows-product CI 全绿；Run `30400155883` 的 Job Summary 保留安装器 Hash 和产品报告关键计数，测试证据 artifact 因历史存储配额未实际生成。
+- [x] 当前分支 PR 的 backend/frontend/windows-product CI 全绿；Run `30445226287` 的 Job Summary 保留安装器 Hash 和产品报告关键计数，测试证据 artifact 因历史存储配额未实际生成。
 
 历史 CI 基线：GitHub Actions Run [`29492919058`](https://github.com/yx666814/AgentProgram/actions/runs/29492919058) 曾验证合并前阶段 9 安装版链路。该 Run 不包含本轮自动编排实现，不能作为当前候选安装器的分发身份。
 
-当前 PR 证据：GitHub Actions Run [`30400155883`](https://github.com/yx666814/AgentProgram/actions/runs/30400155883) 在提交 `600c8a7` 上完成，`backend`、`frontend`、`windows-product` 均为 `success`；安装器构建和安装版 product E2E（`1 passed`）通过。仓库历史 artifact 配额已满，本 Run 没有可下载 artifact，不能把 Job Summary 中的 CI 安装器身份当成公开下载项。
+当前 PR 证据：GitHub Actions Run [`30445226287`](https://github.com/yx666814/AgentProgram/actions/runs/30445226287) 在提交 `db0cc2a` 上完成，`backend`、`frontend`、`windows-product` 均为 `success`；安装器构建和安装版 product E2E（`1 passed`）通过。仓库历史 artifact 配额已满，本 Run 没有可下载 artifact，不能把 Job Summary 中的 CI 安装器身份当成公开下载项。
 
 ## 4. 当前本地 RC1 产物证据
 
@@ -70,10 +70,10 @@ userVisibleOrchestration = true
 
 | 产物 | 字节 | SHA-256 | 签名 |
 | --- | ---: | --- | --- |
-| `frontend/release/XingXie-1.0.0-rc.1-Setup.exe` | 122253379 | `26D0217BBCF8F8E040C9890A85B339E249BFCF8A6387DA74935C9A7F993D059B` | `NotSigned` |
-| `frontend/release/win-unpacked/星协.exe` | 225485824 | `1DBAF7DF25F71F7682C4B1B18E053149322743306840450B8E9E2549AFADB3F8` | `NotSigned` |
+| `frontend/release/XingXie-1.0.0-rc.1-Setup.exe` | 122294271 | `4D830304D516EA87F01332AA7C45B4D7E849652BD09DA0D5A1C81ACD58684192` | `NotSigned` |
+| `frontend/release/win-unpacked/星协.exe` | 225485824 | `A896AADE45A44352CE9EA59E8B4E27B6A1B4CD23AE7BE51FCF625644D57A70B7` | `NotSigned` |
 | `frontend/release/win-unpacked/resources/backend/agent-platform-desktop-sidecar.exe` | 13047226 | `4523EECEE70A5A3959C1831218B131F759BF94B49C47875CC172554027C163B2` | `NotSigned` |
-| `frontend/release/win-unpacked/resources/app.asar` | 13925302 | `8BEC7C7F12F7D6F03C235AAF31E0F08EF9B60EF47B28FBF5EFAC6D202913DE4F` | 不适用 |
+| `frontend/release/win-unpacked/resources/app.asar` | 13975463 | `C3904D5C7ADDD87E9E203D532A9D6EB6D7181FA3FF2452A231F52F130E824ED2` | 不适用 |
 
 本地安装器校验文件：`docs/release/V1-RC1-LOCAL-SHA256SUMS.txt`。本地安装器尚未获得公开上传授权，不是 GitHub Release 下载项。
 
@@ -116,7 +116,7 @@ userVisibleOrchestration = true
 
 ### 审查与分发
 
-- [x] 当前 PR 的三个 CI job 全绿（Run `30400155883`）。
+- [x] 当前 PR 的三个 CI job 全绿（Run `30445226287`）。
 - [ ] PR 由独立审查者确认。
 - [x] 当前零已知 P0/P1。
 - [ ] Release Notes、已知问题和回滚步骤与实际上传文件一致。
