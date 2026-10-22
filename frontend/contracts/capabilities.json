@@ -1,6 +1,6 @@
 {
-  "backendCommit": "3f58d6a19d35fe849764202fec095fd906137372",
-  "backendTree": "19df7dea8f4b76815712544f10b766dc09df30b8",
+  "backendCommit": "02eebe82d9851ab52870ca3a54f6379cb928f74d",
+  "backendTree": "b273cd1d9b9d392c1ae513eb288b4cd388225e5c",
   "capabilities": {
     "append_message_api_v1_rooms__room_id__messages_post": {
       "method": "POST",
