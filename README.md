@@ -164,7 +164,7 @@ npm run test:product
 - [总体实施规划](docs/PROJECT-PLAN.md)
 - [前端正式执行文档](docs/frontend/FRONTEND-IMPLEMENTATION-EXECUTION-v1.md)
 - [前端设计母版](docs/frontend/FRONTEND-DRAFT-MASTER-v1.md)
-- [角色卡与阶段职责](docs/roles/README.md)
+- [角色卡与阶段职责](backend/src/agent_platform/resources/roles/v1/)
 - [后端开发说明](backend/README.md)
 
 ## 产品边界
