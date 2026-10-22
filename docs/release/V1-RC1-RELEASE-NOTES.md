@@ -3,7 +3,7 @@
 > 发布状态：Release Candidate，尚不是正式 `1.0.0`
 > 目标平台：Windows 桌面端
 > 分发方式：未签名安装器
-> 当前身份：2026-07-29 本地验收候选，尚未公开上传
+> 当前身份：2026-10-22 GitHub Pre-release，已公开提供未签名安装器
 
 ## 1. 版本定位
 
@@ -44,11 +44,11 @@ Deployer Manual + UI 审批
 
 ## 3. 当前本地候选文件身份
 
-以下信息只对应 2026-07-29 完成最终安装版 product E2E 的本地文件。该文件尚未上传 GitHub Release，也没有获得公开分发授权。
+以下信息对应 2026-10-22 发布到 GitHub Release 的安装器文件。该文件未进行 Authenticode 签名。
 
 | 文件 | 字节 | SHA-256 | Authenticode |
 | --- | ---: | --- | --- |
-| `XingXie-1.0.0-rc.1-Setup.exe` | 122294271 | `4D830304D516EA87F01332AA7C45B4D7E849652BD09DA0D5A1C81ACD58684192` | `NotSigned` |
+| `XingXie-1.0.0-rc.1-Setup.exe` | 123261899 | `3EAF9338BAD564CD3C94BAE001E4BB63F806140FECDD5D2815976D9C63DF47C8` | `NotSigned` |
 
 PowerShell 校验命令：
 
@@ -114,4 +114,4 @@ GitHub Actions Run [`30445226287`](https://github.com/yx666814/AgentProgram/acti
 
 历史 Run `29492919058` 只证明合并前阶段 9 基线，不包含本轮自动编排实现。
 
-正式 `1.0.0`、`v1.0.0` Tag、GitHub Release 或公开安装器上传均不在当前授权范围内，必须在剩余人工验收完成后另行确认。
+当前已公开发布 `v1.0.0-rc.1` Pre-release；正式 `1.0.0` 仍需完成剩余人工验收后另行发布。
